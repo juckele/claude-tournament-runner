@@ -30,7 +30,7 @@ Pooled paired differences against Swiss pairing with Bradley-Terry ranking:
 |---|---|---|---|---|
 | `oracle-erank` | −0.161 | **+0.150** | −0.103 | **+0.095** |
 | `oracle-near` | **+0.190** | −0.439 | **+0.098** | −0.192 |
-| `rank-bt` (best real) | +0.003 | −0.000 | +0.009 | +0.003 |
+| `rank-bt` (best real) | +0.003 | −0.0005 | +0.009 | +0.003 |
 
 1. **The ranking axis has a lot of headroom, but only with knowledge of the
    truth.** The ranking oracle gains +0.11 to +0.20 τ (more with fewer rounds).
