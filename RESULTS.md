@@ -68,7 +68,7 @@ were rerun with it. (Tuned on a small separate sample, not the study data.)
    White advantage, draw band and per-player σ, doesn't buy ranking accuracy at
    these game counts.
 2. **Learning each player's standard deviation changes nothing**, even on
-   `normal-mixed`, where players genuinely differ in consistency. With 4–11
+   `normal-mixed`, where players genuinely differ in consistency. With 3–11
    games per player there isn't enough data to tell steady from streaky players.
 3. **As a pairer, `nd-info` is Swiss-equivalent in classic rounds** and gives
    closer games in weekly batches, but `rank-bt` beats it in both formats. Its
