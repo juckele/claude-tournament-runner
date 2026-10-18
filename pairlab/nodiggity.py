@@ -25,7 +25,10 @@ Fit
 Maximum a posteriori over theta = (mu, log sigma, white, log delta) with weak
 priors that pin down what the data can't:
 
-    mu_i        ~ N(0, mu_sd^2)       fixes the location (only gaps are observed)
+    mu_i        ~ N(0, mu_sd^2)       fixes the location (only gaps are observed) and
+                                      shrinks thin evidence; mu_sd = 0.75 by default
+                                      (tools/nd_prior_sensitivity.py: 1.5 ranked
+                                      ~0.004 tau worse, 0.5-1.0 about the same)
     log sigma_i ~ N(0, sigma_sd^2)    fixes the scale; sigma_sd is the dial:
                                       0 = sigma fixed at 1 (not learned)
     white       ~ N(0, white_sd^2)
@@ -54,7 +57,7 @@ def _mills(u):
 
 
 class NDModel:
-    def __init__(self, n, sigma_sd=0.3, mu_sd=1.5, white_sd=0.5, delta_mean=np.log(0.25),
+    def __init__(self, n, sigma_sd=0.3, mu_sd=0.75, white_sd=0.5, delta_mean=np.log(0.25),
                  delta_sd=1.0):
         self.n = n
         self.learn_sigma = sigma_sd > 0
