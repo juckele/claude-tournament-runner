@@ -185,7 +185,7 @@ class NDModel:
         if len(w):
             logp, gr = self.game_terms(th, w, b, y)
             f -= logp.sum()
-            np.add.at(g, self.coords(w, b).ravel(), -gr.ravel())
+            g -= np.bincount(self.coords(w, b).ravel(), weights=gr.ravel(), minlength=self.P)
         return f, g
 
     def fit(self, w, b, y, theta0=None, tol=1e-9, maxiter=500):
@@ -214,7 +214,8 @@ class NDModel:
             blocks += p[:, None, None] * gr[:, :, None] * gr[:, None, :]
         rows = np.repeat(C, k, axis=1).ravel()
         cols = np.tile(C, (1, k)).ravel()
-        np.add.at(H, (rows, cols), blocks.ravel())
+        H += np.bincount(rows * self.P + cols, weights=blocks.ravel(),
+                         minlength=self.P * self.P).reshape(self.P, self.P)
         return H
 
     def expected_scores(self, th):

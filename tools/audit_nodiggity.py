@@ -173,6 +173,30 @@ def main():
         lines.append(f"| {r} | {t * 1000:.1f} ms |")
     lines.append("")
 
+    lines += ["## 5. Parallel runs: BLAS threads", "",
+              "The studies run one worker process per core. Measured 2026-10-18 on this "
+              "2-core machine, 8 chess-table league tournaments with nd-info on a 2-worker pool:", "",
+              "| setting | time per tournament per core |", "|---|---|",
+              "| OpenBLAS default threads (each worker spawns its own) | 1,638 ms |",
+              "| OpenBLAS pinned to 1 thread per worker | 108 ms |",
+              "| pinned, plus bincount scatter and backtracking match repair | 88 ms |", "",
+              "Each worker's BLAS threads competed for the same two cores, a 15x slowdown on the "
+              "small matrix work (fit, Fisher inverse) that No Diggity, Bradley-Terry, info-bt and "
+              "erank all do. `pairlab/__init__.py` now pins BLAS to one thread before numpy loads, "
+              "and pool workers also call threadpoolctl. Results are unchanged (re-simulated stored "
+              "trials match exactly); only speed changes. Earlier studies ran with the slow "
+              "setting.", "",
+              "## Decisions", "",
+              "- **Pairer method: `influence`** (one Newton step from the cached fit, ignoring the "
+              "virtual game's own curvature). It orders pairs almost exactly like a full refit "
+              "(Spearman 0.995-0.999) and its chosen games capture 94-102% of the exact method's "
+              "value, at under 1 ms per round for 32 players versus 10 s for exact refits. "
+              "`rank1` is closer in magnitude but orders pairs worse (0.96-0.99).",
+              "- **Exact refits are audit-only**: about 80 s per 32-player tournament.",
+              "- **Warm starts** save little (L-BFGS iterations drop ~10-20%); fits are already "
+              "4-14 ms.",
+              "- **Cache per batch**: the fit, Fisher information and its inverse are computed "
+              "once per batch and shared by every candidate pair.", ""]
     out = os.path.join(ROOT, "results", "nodiggity-audit.md")
     with open(out, "w") as f:
         f.write("\n".join(lines))

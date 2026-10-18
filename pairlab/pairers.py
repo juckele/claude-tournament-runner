@@ -739,12 +739,22 @@ class NDInfo(Pairer):
             if not used[a] and not used[b]:
                 used[a] = used[b] = True
                 local.append((int(a), int(b)))
-        if used.all():
-            local = improve_matching(local, lambda a, b: W[a, b], lambda a, b: allowed[a, b])
-            return [(int(idx[a]), int(idx[b])) for a, b in local]
-        pos = {int(x): t for t, x in enumerate(idx)}
-        return min_cost_match([int(x) for x in idx], lambda a, b: 1.0 - W[pos[a], pos[b]],
-                              forbid, state.opp)
+        if not used.all():
+            # Greedy stranded someone (rematch / same-week constraints). Repair
+            # with backtracking in score order before falling back to the exact
+            # (slow) matcher: players with the fewest options first, best
+            # partners first.
+            opts = allowed.sum(axis=1)
+            order = sorted(range(k), key=lambda a: (opts[a], -W[a].max()))
+            res = dfs_match(order, lambda a, rest: sorted(rest, key=lambda b: -W[a, b]),
+                            ~allowed | np.eye(k, dtype=bool), np.zeros((k, k), int))
+            if res is None:
+                pos = {int(x): t for t, x in enumerate(idx)}
+                return min_cost_match([int(x) for x in idx],
+                                      lambda a, b: 1.0 - W[pos[a], pos[b]], forbid, state.opp)
+            local = [(int(a), int(b)) for a, b in res]
+        local = improve_matching(local, lambda a, b: W[a, b], lambda a, b: allowed[a, b])
+        return [(int(idx[a]), int(idx[b])) for a, b in local]
 
 
 class NDInfoFixed(NDInfo):

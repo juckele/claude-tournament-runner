@@ -58,6 +58,17 @@ def seed_order(strength, seeding, rng):
     return rank
 
 
+def _worker_init():
+    """Belt and braces for the BLAS pin in pairlab/__init__.py: if numpy was
+    imported before pairlab (so the env vars came too late), limit threads at
+    runtime."""
+    try:
+        from threadpoolctl import threadpool_limits
+        threadpool_limits(1)
+    except ImportError:
+        pass
+
+
 def run_trials(job):
     (table_path, prior, n, sched, pairers, rankers, trials, seed, seeding, bye_points) = job
     table = get_table(table_path, prior)
@@ -107,7 +118,7 @@ def run_grid(tables, sizes, scheds, pairers, rankers, trials, seed=1, seeding=("
             if progress:
                 print(f"\r{i + 1}/{len(jobs)} jobs", end="", flush=True)
     else:
-        with Pool(procs) as pool:
+        with Pool(procs, initializer=_worker_init) as pool:
             for i, r in enumerate(pool.imap_unordered(run_trials, jobs)):
                 rows += r
                 if progress:

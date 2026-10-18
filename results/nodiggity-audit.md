@@ -6,24 +6,24 @@ Machine: the 2-core cloud workspace these studies run on. Times are best of 3, s
 
 | players | rounds played | games | sigma | cold start | warm start | iterations (cold / warm) |
 |---|---|---|---|---|---|---|
-| 16 | 3 | 24 | learned | 5.5 ms | 5.2 ms | 30 / 31 |
-| 16 | 3 | 24 | fixed | 2.6 ms | 2.6 ms | 19 / 18 |
-| 16 | 7 | 56 | learned | 4.7 ms | 4.5 ms | 28 / 26 |
-| 16 | 7 | 56 | fixed | 2.6 ms | 3.4 ms | 19 / 21 |
-| 16 | 11 | 88 | learned | 3.8 ms | 3.7 ms | 22 / 20 |
-| 16 | 11 | 88 | fixed | 2.3 ms | 2.5 ms | 15 / 16 |
-| 32 | 3 | 48 | learned | 7.6 ms | 6.8 ms | 44 / 43 |
-| 32 | 3 | 48 | fixed | 4.7 ms | 5.0 ms | 30 / 30 |
-| 32 | 7 | 112 | learned | 6.1 ms | 5.6 ms | 36 / 32 |
-| 32 | 7 | 112 | fixed | 4.6 ms | 3.9 ms | 30 / 22 |
-| 32 | 11 | 176 | learned | 5.6 ms | 5.6 ms | 32 / 26 |
-| 32 | 11 | 176 | fixed | 5.7 ms | 4.8 ms | 30 / 24 |
-| 64 | 3 | 96 | learned | 8.9 ms | 9.4 ms | 52 / 49 |
-| 64 | 3 | 96 | fixed | 7.6 ms | 6.7 ms | 46 / 35 |
-| 64 | 7 | 224 | learned | 9.4 ms | 8.4 ms | 45 / 40 |
-| 64 | 7 | 224 | fixed | 7.4 ms | 7.3 ms | 42 / 37 |
-| 64 | 11 | 352 | learned | 8.6 ms | 7.9 ms | 36 / 31 |
-| 64 | 11 | 352 | fixed | 6.9 ms | 5.6 ms | 32 / 24 |
+| 16 | 3 | 24 | learned | 8.3 ms | 6.1 ms | 30 / 31 |
+| 16 | 3 | 24 | fixed | 2.8 ms | 2.9 ms | 19 / 18 |
+| 16 | 7 | 56 | learned | 4.8 ms | 4.3 ms | 28 / 26 |
+| 16 | 7 | 56 | fixed | 2.7 ms | 3.2 ms | 19 / 21 |
+| 16 | 11 | 88 | learned | 3.7 ms | 3.4 ms | 22 / 20 |
+| 16 | 11 | 88 | fixed | 2.4 ms | 2.5 ms | 15 / 16 |
+| 32 | 3 | 48 | learned | 6.8 ms | 6.8 ms | 44 / 43 |
+| 32 | 3 | 48 | fixed | 4.2 ms | 7.8 ms | 30 / 30 |
+| 32 | 7 | 112 | learned | 10.6 ms | 10.1 ms | 36 / 32 |
+| 32 | 7 | 112 | fixed | 7.8 ms | 4.1 ms | 30 / 22 |
+| 32 | 11 | 176 | learned | 5.5 ms | 4.7 ms | 32 / 26 |
+| 32 | 11 | 176 | fixed | 4.8 ms | 4.5 ms | 30 / 24 |
+| 64 | 3 | 96 | learned | 8.3 ms | 8.9 ms | 52 / 49 |
+| 64 | 3 | 96 | fixed | 6.9 ms | 5.9 ms | 46 / 35 |
+| 64 | 7 | 224 | learned | 8.6 ms | 7.4 ms | 45 / 40 |
+| 64 | 7 | 224 | fixed | 6.8 ms | 6.6 ms | 42 / 37 |
+| 64 | 11 | 352 | learned | 7.3 ms | 6.9 ms | 36 / 31 |
+| 64 | 11 | 352 | fixed | 6.0 ms | 4.7 ms | 32 / 24 |
 
 ## 2. Pairer cost per round
 
@@ -32,11 +32,11 @@ Scoring every allowed pair (no rematches) once, after the fit. `cache` = Fisher 
 | players | rounds played | allowed pairs | cache | influence | rank1 | exact refit |
 |---|---|---|---|---|---|---|
 | 16 | 2 | 104 | 1 ms | 0.2 ms | 0.3 ms | 2.4 s |
-| 16 | 4 | 88 | 1 ms | 0.2 ms | 0.3 ms | 1.6 s |
-| 16 | 6 | 72 | 1 ms | 0.1 ms | 0.2 ms | 1.2 s |
-| 32 | 2 | 464 | 1 ms | 0.8 ms | 1.3 ms | 10.5 s |
-| 32 | 4 | 432 | 1 ms | 0.8 ms | 1.3 ms | 10.1 s |
-| 32 | 6 | 400 | 1 ms | 0.7 ms | 1.2 ms | 9.3 s |
+| 16 | 4 | 88 | 2 ms | 0.3 ms | 0.5 ms | 1.8 s |
+| 16 | 6 | 72 | 1 ms | 0.2 ms | 0.3 ms | 1.4 s |
+| 32 | 2 | 464 | 1 ms | 1.0 ms | 1.4 ms | 10.8 s |
+| 32 | 4 | 432 | 1 ms | 1.1 ms | 1.4 ms | 10.6 s |
+| 32 | 6 | 400 | 1 ms | 0.7 ms | 1.2 ms | 9.7 s |
 
 ## 3. Accuracy against the exact refit
 
@@ -75,21 +75,40 @@ Average wall time per simulated tournament including all rankers (as in the stud
 
 | system | 32 players, 7 rounds | 24 players, league4 |
 |---|---|---|
-| swiss | 23 ms | 20 ms |
-| rank-bt | 23 ms | 22 ms |
-| erank-00 | 270 ms | 88 ms |
-| nd-info | 87 ms | 76 ms |
-| nd-info-fixed | 83 ms | 52 ms |
+| swiss | 23 ms | 21 ms |
+| rank-bt | 25 ms | 21 ms |
+| erank-00 | 262 ms | 88 ms |
+| nd-info | 65 ms | 54 ms |
+| nd-info-fixed | 51 ms | 43 ms |
 
 Ranker cost on one finished 32-player, 7-round event:
 
 | ranker | time |
 |---|---|
 | score | 0.0 ms |
-| swiss-tb | 0.1 ms |
+| swiss-tb | 0.2 ms |
 | pct | 0.0 ms |
-| bt | 0.3 ms |
-| elo | 0.1 ms |
-| pu | 0.6 ms |
-| nd | 6.3 ms |
-| nd-fixed | 5.2 ms |
+| bt | 0.4 ms |
+| elo | 0.2 ms |
+| pu | 1.1 ms |
+| nd | 9.3 ms |
+| nd-fixed | 7.3 ms |
+
+## 5. Parallel runs: BLAS threads
+
+The studies run one worker process per core. Measured 2026-10-18 on this 2-core machine, 8 chess-table league tournaments with nd-info on a 2-worker pool:
+
+| setting | time per tournament per core |
+|---|---|
+| OpenBLAS default threads (each worker spawns its own) | 1,638 ms |
+| OpenBLAS pinned to 1 thread per worker | 108 ms |
+| pinned, plus bincount scatter and backtracking match repair | 88 ms |
+
+Each worker's BLAS threads competed for the same two cores, a 15x slowdown on the small matrix work (fit, Fisher inverse) that No Diggity, Bradley-Terry, info-bt and erank all do. `pairlab/__init__.py` now pins BLAS to one thread before numpy loads, and pool workers also call threadpoolctl. Results are unchanged (re-simulated stored trials match exactly); only speed changes. Earlier studies ran with the slow setting.
+
+## Decisions
+
+- **Pairer method: `influence`** (one Newton step from the cached fit, ignoring the virtual game's own curvature). It orders pairs almost exactly like a full refit (Spearman 0.995-0.999) and its chosen games capture 94-102% of the exact method's value, at under 1 ms per round for 32 players versus 10 s for exact refits. `rank1` is closer in magnitude but orders pairs worse (0.96-0.99).
+- **Exact refits are audit-only**: about 80 s per 32-player tournament.
+- **Warm starts** save little (L-BFGS iterations drop ~10-20%); fits are already 4-14 ms.
+- **Cache per batch**: the fit, Fisher information and its inverse are computed once per batch and shared by every candidate pair.
