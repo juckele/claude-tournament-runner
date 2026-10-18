@@ -61,6 +61,11 @@ for _p in INFO_LAMS:
 INFO_DASH = {"info-bt-00": (0, (1, 1.5)), "info-bt-25": (0, (3, 2)), "info-bt-50": (0, (6, 2)),
              "info-bt-75": "solid"}
 # erank (pair to reduce total ranking error): same ink, hollow markers, labelled.
+ORACLES = {"oracle-near": "oracle: near", "oracle-erank": "oracle: erank"}
+for _p in ORACLES:
+    PAIRER_COLOR[_p] = "#0b0b0b"
+    PAIRER_ORDER.append(_p)
+INFO_DASH_ORACLE = {"oracle-near": (0, (1, 3)), "oracle-erank": (0, (5, 1, 1, 1, 1, 1))}
 ERANK_LAMS = {"erank-00": 0.0, "erank-50": 0.5}
 for _p in ERANK_LAMS:
     PAIRER_COLOR[_p] = "#0b0b0b"
@@ -179,7 +184,7 @@ def _pareto_key(fig, pairers, rankers):
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
     ph = [Line2D([0], [0], color=PAIRER_COLOR[p], lw=2, marker="o", ms=6, mec=SURFACE, label=p)
-          for p in pairers if p not in INFO_LAMS and p not in ERANK_LAMS]
+          for p in pairers if p not in INFO_LAMS and p not in ERANK_LAMS and p not in ORACLES]
     if any(p in INFO_LAMS for p in pairers):
         ph.append(Line2D([0], [0], color=PAIRER_COLOR["info-bt-50"], lw=2, marker="o", ms=6,
                          mec=SURFACE, label="info-bt (all λ, BT)"))
@@ -234,10 +239,18 @@ def plot_pareto(summary, verdicts, cells, path, title=None, ncols=3):
                             color=SLOTS[1], alpha=0.07, linewidth=0, zorder=0)
             ax.axvline(bx, color=MUTED, lw=0.6, ls=(0, (3, 3)), zorder=0)
             ax.axhline(by, color=MUTED, lw=0.6, ls=(0, (3, 3)), zorder=0)
+        s = s[~s.pairer.isin(list(ORACLES))]  # oracles go in plot_headroom
         for p in [q for q in PAIRER_ORDER if q in set(s.pairer)]:
             d = s[s.pairer == p]
             pairers_seen.add(p)
             col = PAIRER_COLOR[p]
+            if p in ORACLES:
+                for _, r in d[d.ranker == "bt"].iterrows():
+                    ax.plot(r.mq, r.tau, marker="*", ms=12, color=col, mec=SURFACE, mew=0.8,
+                            ls="none", zorder=4)
+                    ax.annotate(ORACLES[p], (r.mq, r.tau), textcoords="offset points",
+                                xytext=(7, 3), fontsize=6.5, color=INK)
+                continue
             if p in INFO_LAMS or p in ERANK_LAMS:
                 # Model-based families: one point each (Bradley-Terry ranker), no
                 # stem, to keep the panel readable.
@@ -287,6 +300,61 @@ def plot_pareto(summary, verdicts, cells, path, title=None, ncols=3):
     plt.close(fig)
 
 
+def plot_headroom(summary, cells, path, title=None, ncols=3):
+    """Where the oracles sit relative to real systems, on the full range.
+    Every real system's Bradley-Terry-ranked point in gray, Swiss and rank-bt
+    in their colours, the two oracles (which see the true strengths) as
+    labelled stars."""
+    from matplotlib.lines import Line2D
+    cells = list(cells)
+    nrows = int(np.ceil(len(cells) / ncols))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(4.4 * ncols, 3.6 * nrows + 0.7),
+                             squeeze=False, facecolor=SURFACE)
+    for ax in axes.flat[len(cells):]:
+        ax.set_visible(False)
+    for ax, cell in zip(axes.flat, cells):
+        _style(ax)
+        s = summary[np.all([summary[c] == v for c, v in zip(CELL, cell)], axis=0)]
+        s = s[s.ranker == "bt"]
+        real = s[~s.pairer.isin(list(ORACLES))]
+        ax.plot(real.mq, real.tau, "o", ms=4, color=MUTED, ls="none", zorder=2)
+        for p, lab in (("swiss", "Swiss"), ("rank-bt", "rank-bt")):
+            d = s[s.pairer == p]
+            if not d.empty:
+                ax.plot(d.mq, d.tau, "o", ms=7, color=PAIRER_COLOR[p], mec=SURFACE, ls="none",
+                        zorder=3)
+        sw = s[s.pairer == "swiss"]
+        if not sw.empty:
+            ax.annotate("Swiss", (sw.mq.iloc[0], sw.tau.iloc[0]), textcoords="offset points",
+                        xytext=(7, -10), fontsize=7, color=INK)
+        for p, lab in ORACLES.items():
+            d = s[s.pairer == p]
+            if not d.empty:
+                ax.plot(d.mq, d.tau, marker="*", ms=13, color=INK, mec=SURFACE, ls="none",
+                        zorder=4)
+                near = p == "oracle-near"
+                ax.annotate(lab, (d.mq.iloc[0], d.tau.iloc[0]), textcoords="offset points",
+                            xytext=(-8, 6) if near else (9, -4), fontsize=7, color=INK,
+                            ha="right" if near else "left")
+        tbl, n, sch, seed, bp = cell
+        ax.set_title(f"{tbl}  ·  N={n}  ·  {sch}", fontsize=9, color=INK, loc="left")
+        ax.set_xlabel("match quality (mean closeness) →", fontsize=8, color=INK2)
+        ax.set_ylabel("ranking quality (Kendall τ) →", fontsize=8, color=INK2)
+    handles = [Line2D([0], [0], marker="o", ms=5, color=MUTED, ls="none", label="real systems (BT ranker)"),
+               Line2D([0], [0], marker="o", ms=7, color=PAIRER_COLOR["swiss"], ls="none", label="swiss/bt"),
+               Line2D([0], [0], marker="o", ms=7, color=PAIRER_COLOR["rank-bt"], ls="none", label="rank-bt/bt"),
+               Line2D([0], [0], marker="*", ms=12, color=INK, ls="none",
+                      label="oracle: sees the true strengths (not a real system)")]
+    fig.legend(handles=handles, loc="lower left", ncol=4, frameon=False, fontsize=8,
+               labelcolor=INK2, bbox_to_anchor=(0.01, 0.0))
+    if title:
+        fig.suptitle(title, fontsize=10, color=INK, x=0.01, ha="left")
+    H = fig.get_figheight()
+    fig.tight_layout(rect=(0, 0.6 / H, 1, 1 - (0.3 / H if title else 0)))
+    fig.savefig(path, dpi=130, facecolor=SURFACE)
+    plt.close(fig)
+
+
 def plot_sweep(summary, x, tables, path, ranker="bt", fixed=None, xlabel=None, title=None):
     """Two rows (match quality, ranking quality) x one column per table; one
     line per pairer, ranked by `ranker` ('best' = each pairer's best ranker)."""
@@ -310,7 +378,7 @@ def plot_sweep(summary, x, tables, path, ranker="bt", fixed=None, xlabel=None, t
                 if dp.empty:
                     continue
                 ax.plot(dp[x], dp[metric], marker="o", color=PAIRER_COLOR[p],
-                        ls=INFO_DASH.get(p, "solid"), lw=2 if p == "swiss" else 1.4,
+                        ls=INFO_DASH.get(p, INFO_DASH_ORACLE.get(p, "solid")), lw=2 if p == "swiss" else 1.4,
                         ms=3 if p in INFO_LAMS else 4, label=p, zorder=3 if p == "swiss" else 2)
             if i == 0:
                 ax.set_title(tbl, fontsize=9, color=INK, loc="left")

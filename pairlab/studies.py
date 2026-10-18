@@ -16,8 +16,8 @@ import time
 import numpy as np
 import pandas as pd
 
-from .analysis import (CELL, REF, paired_vs, pareto_front, plot_pareto, plot_sweep,
-                       summarize, verdict_table)
+from .analysis import (CELL, ORACLES, REF, paired_vs, pareto_front, plot_headroom, plot_pareto,
+                       plot_sweep, summarize, verdict_table)
 from .experiment import run_grid
 from .pairers import PAIRERS
 from .rankers import RANKERS
@@ -84,6 +84,11 @@ def run_study(name, trials=None, procs=None, report_only=False, pairers=None, ap
 
 def report(name, df, outdir):
     cfg = STUDIES[name]
+    # Oracles see the truth: they appear only in the headroom section and in
+    # summary_all.csv, never in verdicts, frontiers or the main plots.
+    summ_all = summarize(df)
+    summ_all.to_csv(os.path.join(outdir, "summary_all.csv"), index=False)
+    df = df[~df.pairer.isin(list(ORACLES))]
     summ = pareto_front(summarize(df))
     v_std = paired_vs(df, REF)
     v_best = paired_vs(df, "swiss/best")
@@ -109,6 +114,16 @@ def report(name, df, outdir):
               "quadrant is where a system must land to beat it. Orange dot: beats the best Swiss "
               "on both axes (paired |z| >= 3); orange ring: better on one axis, tied on the other.",
               "", "![](pareto.png)", ""]
+
+    if summ_all.pairer.isin(list(ORACLES)).any():
+        plot_headroom(summ_all, cells, os.path.join(outdir, "headroom.png"),
+                      title=f"{name}: oracles vs real systems at {col} = {key}")
+        lines += ["## Headroom: oracle pairers", "",
+                  "Two oracles that see the true strengths (not real systems, so they are left "
+                  "out of every verdict, frontier and the main plot): `oracle-near` pairs true "
+                  "neighbours (the closest games possible); `oracle-erank` picks the games expected "
+                  "to move the Bradley-Terry fit furthest toward the true order. They bracket what "
+                  "pairing alone could do on each axis.", "", "![](headroom.png)", ""]
 
     if cfg["sweep"]:
         x = "rounds" if cfg["sweep"] == "rounds" else "n"

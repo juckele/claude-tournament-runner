@@ -12,6 +12,50 @@ pairing with whichever ranker ranks best there): per axis a system is better or
 worse when |z| ≥ 3, otherwise tied. *Dominates* = better on both axes, *weakly
 dominates* = better on one axis and tied on the other.
 
+## Round 5: oracle pairing, how much headroom is there? (added 2026-10-18)
+
+Two oracles that see the true strengths (not real systems; excluded from all
+verdicts and main plots, shown in each study's `headroom.png`):
+
+- `oracle-near` pairs true neighbours (1v2, 3v4 in the true order), no rematches:
+  the closest games any pairing could schedule.
+- `oracle-erank` is `erank` with the truth plugged in: each game is scored by the
+  expected drop in posterior probability that pairs are misordered *relative to
+  the true order*, with outcomes drawn from the true probabilities. Tested
+  against a brute-force calculation.
+
+Pooled paired differences against Swiss pairing with Bradley-Terry ranking:
+
+| | rounds study Δ closeness | rounds Δτ | weekly league Δ closeness | league Δτ |
+|---|---|---|---|---|
+| `oracle-erank` | −0.161 | **+0.150** | −0.103 | **+0.095** |
+| `oracle-near` | **+0.190** | −0.439 | **+0.098** | −0.192 |
+| `rank-bt` (best real) | +0.003 | −0.000 | +0.009 | +0.003 |
+
+1. **The ranking axis has a lot of headroom, but only with knowledge of the
+   truth.** The ranking oracle gains +0.11 to +0.20 τ (more with fewer rounds).
+   With 3 rounds it ranks as well as Swiss with about 9 (τ 0.599 vs 0.589 at
+   N = 32); with 7 rounds (0.688) it beats Swiss with 11 (0.618). Every real
+   pairer is within ±0.003. So "pairing can't move ranking" was wrong as stated:
+   pairing can move it a lot; *real* pairers can't, because they don't know
+   where the errors are.
+2. **The oracle pays for it in closeness (−0.10 to −0.16).** It plays probing
+   games across wider gaps (13.7 places apart in the true order vs 8.9 for Swiss,
+   in elo-white at 7 rounds), not mainly the pairs the model has backwards (22% of
+   its games vs 52% for Swiss). It puts a misplaced player against someone the
+   model wrongly thinks is far stronger or weaker, so one result shifts many pairs
+   at once. Without the truth those wide games look uninformative, which is why
+   `erank` (the same idea from the model's own beliefs) found nothing.
+3. **The closeness axis has headroom too, at a ruinous ranking cost.** Pairing
+   true neighbours raises closeness by +0.10 to +0.27, but τ collapses (−0.44):
+   neighbour-only games say almost nothing about the global order.
+4. **Swiss sits between the two extremes**, and the real systems cluster tightly
+   around it. The oracles show the frontier extends far in both directions. The
+   question for a better real system is whether any observable signal can
+   identify which players are misplaced (e.g. players whose results are
+   inconsistent with their rating), recovering part of the oracle's τ gain at an
+   acceptable closeness cost.
+
 ## Round 4: pairing to reduce total ranking error (`erank`, added 2026-10-18)
 
 `erank` drops the order-uncertainty factor and scores each candidate game by the

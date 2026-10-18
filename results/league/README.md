@@ -14,6 +14,12 @@ Every pairer/ranker system at schedule = league4, with standard errors. Blue dot
 
 ![](pareto.png)
 
+## Headroom: oracle pairers
+
+Two oracles that see the true strengths (not real systems, so they are left out of every verdict, frontier and the main plot): `oracle-near` pairs true neighbours (the closest games possible); `oracle-erank` picks the games expected to move the Bradley-Terry fit furthest toward the true order. They bracket what pairing alone could do on each axis.
+
+![](headroom.png)
+
 ## Against standard Swiss (swiss/swiss-tb)
 
 Number of cells (out of 36) in each verdict. Per axis a system is better or worse than the reference when the paired difference has |z| >= 3, otherwise tied. *Dominates* = better on both axes; *weakly dominates* = better on one, tied on the other. Top 12 systems.

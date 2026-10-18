@@ -12,6 +12,12 @@ Every pairer/ranker system at schedule = rounds:7, with standard errors. Blue do
 
 ![](pareto.png)
 
+## Headroom: oracle pairers
+
+Two oracles that see the true strengths (not real systems, so they are left out of every verdict, frontier and the main plot): `oracle-near` pairs true neighbours (the closest games possible); `oracle-erank` picks the games expected to move the Bradley-Terry fit furthest toward the true order. They bracket what pairing alone could do on each axis.
+
+![](headroom.png)
+
 ## Sweep
 
 Each pairer ranked by its best ranker in that cell:

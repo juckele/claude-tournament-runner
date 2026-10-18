@@ -79,6 +79,7 @@ Pairers (`pairlab/pairers.py`):
 | `rank-pu` | the same, ranking by Pong-Uckele |
 | `info-bt-00/25/50/75` | pair for information: Bradley-Terry posterior; pair weight = λ·closeness + (1−λ)·(expected information on the gap × order uncertainty), greedy matching, planned games folded into the posterior within a batch; λ = 0, 0.25, 0.5, 0.75 |
 | `erank-00`, `erank-50` | pair to reduce total ranking error: Bradley-Terry posterior; each game scored by the expected drop in misordered pairs across all players (exact Gaussian covariance update, Gauss-Hermite over the mean shift); λ = 0 pure, 0.5 blended with closeness; greedy + 2-opt matching |
+| `oracle-near`, `oracle-erank` | reference oracles that see the true strengths (not real systems; excluded from verdicts): true-neighbour pairing, and erank scored against the true order with true outcome probabilities. Shown in each study's `headroom.png` |
 
 Rankers (`pairlab/rankers.py`): `score` (points), `swiss-tb` (points, Buchholz,
 Sonneborn-Berger), `pct` (points per game played), `bt` (ridge-regularised
