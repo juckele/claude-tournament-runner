@@ -33,9 +33,28 @@ REF = "swiss/swiss-tb"
 
 # Reference palette (dataviz skill, light mode), fixed per entity.
 SLOTS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
-PAIRER_ORDER = ["swiss", "random", "random-noreplay", "round-robin", "monrad", "accel-swiss",
-                "elo-match"]
-PAIRER_COLOR = {p: SLOTS[i] for i, p in enumerate(PAIRER_ORDER)}
+# Colour follows the pairer everywhere. Nine pairers exceed what colour alone
+# can separate on a scatter, so the Pareto plots add a second encoding (marker
+# shape = ranker, a stem joining each pairer's rankers) and pairs of hues that
+# are hard to tell apart (red/magenta, orange/green) go to pairers that land
+# far apart on the match-quality axis. The random baseline is neutral gray.
+PAIRER_ORDER = ["swiss", "monrad", "accel-swiss", "elo-match", "rank-bt", "rank-pu",
+                "random", "random-noreplay", "round-robin"]
+PAIRER_COLOR = {
+    "swiss": "#2a78d6",            # blue
+    "monrad": "#e87ba4",           # magenta
+    "accel-swiss": "#eda100",      # yellow
+    "elo-match": "#008300",        # green
+    "rank-bt": "#1baf7a",          # aqua
+    "rank-pu": "#e34948",          # red
+    "random": "#52514e",           # neutral: the null baseline
+    "random-noreplay": "#eb6834",  # orange
+    "round-robin": "#6250d6",      # violet
+}
+RANKER_ORDER = ["swiss-tb", "score", "pct", "elo", "bt", "pu"]
+RANKER_MARKER = {"swiss-tb": "o", "score": "s", "pct": "^", "elo": "v", "bt": "D", "pu": "P"}
+RANKER_LABEL = {"swiss-tb": "points + Buchholz + SB", "score": "points", "pct": "points per game",
+                "elo": "sequential Elo", "bt": "Bradley-Terry", "pu": "Pong-Uckele"}
 INK, INK2, MUTED, GRID, SURFACE = "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#fcfcfb"
 
 
@@ -134,72 +153,101 @@ def _style(ax):
         ax.spines[s].set_color(MUTED)
     ax.tick_params(colors=INK2, labelsize=8)
     ax.grid(True, color=GRID, linewidth=0.6)
+    from matplotlib.ticker import MaxNLocator
+    ax.xaxis.set_major_locator(MaxNLocator(5))
     ax.set_axisbelow(True)
 
 
-def plot_pareto(summary, verdicts, cells, path, title=None, ncols=3):
-    """Small multiples: match quality (x) vs ranking quality (y).
+def _pareto_key(fig, pairers, rankers):
+    """One key for the whole figure: pairer colours, ranker shapes, and the
+    reference marks."""
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+    ph = [Line2D([0], [0], color=PAIRER_COLOR[p], lw=2, marker="o", ms=6, mec=SURFACE, label=p)
+          for p in pairers]
+    rh = [Line2D([0], [0], color="none", marker=RANKER_MARKER[r], ms=7, mfc=INK2, mec=SURFACE,
+                 label=RANKER_LABEL[r]) for r in rankers]
+    mh = [Line2D([0], [0], color="none", marker="o", ms=14, mfc="none", mec=INK, mew=1.6,
+                 label="best Swiss variant in the panel"),
+          Line2D([0], [0], color="none", marker="o", ms=10, mfc="none", mec=INK, mew=2.6,
+                 ls="none", label="beats it (bold outline, named)"),
+          Patch(facecolor=SLOTS[1], alpha=0.12, label="region that beats the best Swiss")]
+    kw = dict(frameon=False, fontsize=8, labelcolor=INK2, handletextpad=0.4, columnspacing=1.2,
+              title_fontsize=8, alignment="left")
+    l1 = fig.legend(handles=ph, title="Pairer (colour)", loc="lower left", ncol=5,
+                    bbox_to_anchor=(0.01, 0.0), **kw)
+    l2 = fig.legend(handles=rh, title="Ranker (shape)", loc="lower center", ncol=3,
+                    bbox_to_anchor=(0.6, 0.0), **kw)
+    l3 = fig.legend(handles=mh, title="Marks", loc="lower right", ncol=1,
+                    bbox_to_anchor=(0.995, 0.0), **kw)
+    for lg in (l1, l2, l3):
+        lg.get_title().set_color(INK)
 
-    `verdicts` are paired tests against swiss/best. Gray = every system; blue
-    dot = standard Swiss (swiss/swiss-tb); blue ring = the best Swiss variant in
-    the cell, whose up-right quadrant is shaded; orange dot = dominates the best
-    Swiss; orange ring = weakly dominates it (better on one axis, tied on the
-    other)."""
+
+def plot_pareto(summary, verdicts, cells, path, title=None, ncols=3):
+    """Small multiples: match quality (x) vs ranking quality (y), one point per
+    system. Colour = pairer, marker shape = ranker; a stem in the pairer's
+    colour joins its rankers (they share the pairer's games, so the same x).
+    `verdicts` are paired tests against swiss/best: its point gets a ring and
+    its up-right quadrant is shaded; systems that dominate or weakly dominate
+    it get a bold outline and a label. A single key sits under the panels."""
     cells = list(cells)
     nrows = int(np.ceil(len(cells) / ncols))
-    fig, axes = plt.subplots(nrows, ncols, figsize=(4.2 * ncols, 3.6 * nrows), squeeze=False,
-                             facecolor=SURFACE)
+    key_h = 1.25
+    fig, axes = plt.subplots(nrows, ncols, figsize=(4.4 * ncols, 3.7 * nrows + key_h),
+                             squeeze=False, facecolor=SURFACE)
     for ax in axes.flat[len(cells):]:
         ax.set_visible(False)
+    pairers_seen, rankers_seen = set(), set()
     for ax, cell in zip(axes.flat, cells):
         _style(ax)
-        sel = np.all([summary[c] == v for c, v in zip(CELL, cell)], axis=0)
-        s = summary[sel]
+        s = summary[np.all([summary[c] == v for c, v in zip(CELL, cell)], axis=0)]
         v = verdicts[np.all([verdicts[c] == x for c, x in zip(CELL, cell)], axis=0)]
         best_name = v.reference.iloc[0] if len(v) else REF
-        dom = set(v[v.verdict == "dominates"].system)
-        weak = set(v[v.verdict == "weakly dominates"].system)
-        std = s[s.system == REF]
+        winners = v[v.verdict.isin(["dominates", "weakly dominates"])]
         best = s[s.system == best_name]
         if not best.empty:
             bx, by = best.mq.iloc[0], best.tau.iloc[0]
-            ax.fill_between([bx, max(s.mq.max(), bx) + 0.02], by, max(s.tau.max(), by) + 0.02,
-                            color=SLOTS[1], alpha=0.06, linewidth=0)
-        special = {REF, best_name} | dom | weak
-        other = s[~s.system.isin(special)]
-        ax.errorbar(other.mq, other.tau, xerr=other.mq_se, yerr=other.tau_se, fmt="o", ms=4,
-                    color=MUTED, ecolor=GRID, elinewidth=1, alpha=0.9)
-        if not std.empty:
-            ax.errorbar(std.mq, std.tau, xerr=std.mq_se, yerr=std.tau_se, fmt="o", ms=7,
-                        color=SLOTS[0], mec=SURFACE, mew=1.5, elinewidth=1.2, zorder=4)
-            ax.annotate("Swiss (std)", (std.mq.iloc[0], std.tau.iloc[0]),
-                        textcoords="offset points", xytext=(-7, -11), fontsize=7, color=INK,
+            ax.fill_between([bx, max(s.mq.max(), bx) + 0.01], by, max(s.tau.max(), by) + 0.01,
+                            color=SLOTS[1], alpha=0.07, linewidth=0, zorder=0)
+            ax.axvline(bx, color=MUTED, lw=0.6, ls=(0, (3, 3)), zorder=0)
+            ax.axhline(by, color=MUTED, lw=0.6, ls=(0, (3, 3)), zorder=0)
+        for p in [q for q in PAIRER_ORDER if q in set(s.pairer)]:
+            d = s[s.pairer == p]
+            pairers_seen.add(p)
+            col = PAIRER_COLOR[p]
+            ax.plot([d.mq.mean()] * 2, [d.tau.min(), d.tau.max()], color=col, lw=1.2, alpha=0.55,
+                    zorder=1, solid_capstyle="round")
+            for _, r in d.iterrows():
+                rankers_seen.add(r.ranker)
+                ax.errorbar(r.mq, r.tau, yerr=r.tau_se, fmt="none", ecolor=col, alpha=0.35,
+                            elinewidth=0.8, zorder=1)
+                ax.plot(r.mq, r.tau, marker=RANKER_MARKER.get(r.ranker, "o"), ms=6.5, color=col,
+                        mec=SURFACE, mew=0.9, ls="none", zorder=3)
+        if not best.empty:
+            ax.plot(bx, by, marker="o", ms=15, mfc="none", mec=INK, mew=1.6, zorder=4)
+            ax.annotate(f"best Swiss: {best_name.split('/')[1]}", (bx, by),
+                        textcoords="offset points", xytext=(-9, 7), fontsize=7, color=INK,
                         ha="right")
-        if not best.empty and best_name != REF:
-            ax.errorbar(best.mq, best.tau, xerr=best.mq_se, yerr=best.tau_se, fmt="o", ms=9,
-                        mfc="none", mec=SLOTS[0], mew=2, ecolor=SLOTS[0], elinewidth=1.2,
-                        zorder=4)
-            ax.annotate(f"best Swiss ({best_name.split('/')[1]})", (bx, by),
-                        textcoords="offset points", xytext=(-8, 5), fontsize=7, color=INK,
-                        ha="right")
-        for group, filled in [(weak, False), (dom, True)]:
-            d = s[s.system.isin(group)]
-            if d.empty:
-                continue
-            ax.errorbar(d.mq, d.tau, xerr=d.mq_se, yerr=d.tau_se, fmt="o", ms=8,
-                        mfc=SLOTS[1] if filled else "none", mec=SLOTS[1], mew=2,
-                        ecolor=SLOTS[1], elinewidth=1.2, zorder=5)
-            for _, r in d.sort_values("tau", ascending=False).head(2).iterrows():
-                ax.annotate(r.system, (r.mq, r.tau), textcoords="offset points", xytext=(8, 5),
-                            fontsize=7, color=INK)
+        for k, (_, r) in enumerate(winners.sort_values("d_tau", ascending=False).iterrows()):
+            row = s[s.system == r.system].iloc[0]
+            ax.plot(row.mq, row.tau, marker=RANKER_MARKER.get(row.ranker, "o"), ms=10,
+                    mfc="none", mec=INK, mew=2.2, zorder=5)
+            if k < 2:
+                tag = "" if r.verdict == "dominates" else " (weakly)"
+                ax.annotate(r.system + tag, (row.mq, row.tau), textcoords="offset points",
+                            xytext=(9, 4 - 11 * k), fontsize=7, color=INK)
         tbl, n, sch, seed, bp = cell
-        extra = f"  ·  {seed}" if seed != "random" else ""
+        extra = f"  ·  seeds {seed}" if seed != "random" else ""
         ax.set_title(f"{tbl}  ·  N={n}  ·  {sch}{extra}", fontsize=9, color=INK, loc="left")
-        ax.set_xlabel("match quality (mean closeness)", fontsize=8, color=INK2)
-        ax.set_ylabel("ranking quality (Kendall τ)", fontsize=8, color=INK2)
+        ax.set_xlabel("match quality (mean closeness) →", fontsize=8, color=INK2)
+        ax.set_ylabel("ranking quality (Kendall τ) →", fontsize=8, color=INK2)
     if title:
         fig.suptitle(title, fontsize=10, color=INK, x=0.01, ha="left")
-    fig.tight_layout(rect=(0, 0, 1, 1 - 0.3 / (3.6 * nrows) if title else 1))
+    _pareto_key(fig, [p for p in PAIRER_ORDER if p in pairers_seen],
+                [r for r in RANKER_ORDER if r in rankers_seen])
+    H = fig.get_figheight()
+    fig.tight_layout(rect=(0, key_h / H, 1, 1 - (0.3 / H if title else 0)))
     fig.savefig(path, dpi=130, facecolor=SURFACE)
     plt.close(fig)
 
