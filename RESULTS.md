@@ -12,6 +12,48 @@ pairing with whichever ranker ranks best there): per axis a system is better or
 worse when |z| ≥ 3, otherwise tied. *Dominates* = better on both axes, *weakly
 dominates* = better on one axis and tied on the other.
 
+## Round 4: pairing to reduce total ranking error (`erank`, added 2026-10-18)
+
+`erank` drops the order-uncertainty factor and scores each candidate game by the
+expected drop in the number of misordered pairs across **all** players, under the
+Bradley-Terry Laplace posterior: the covariance update is exact for the Gaussian
+model, the expected mean shift is integrated with Gauss-Hermite quadrature, and
+pairs not involving the two players count too. Matching is greedy plus 2-opt
+swaps. Tests check the update against a direct matrix inverse and the whole gain
+against a 200,000-sample Monte Carlo of the Gaussian model (agreement within 0.01
+pairs). Unlike `info-bt` the score really does differ from closeness: it shares
+only 3 of 16 games with `info-bt`'s choice. Run at λ = 0 (pure) and 0.5 (blended
+with closeness) on the rounds and league studies, 400 paired trials per cell.
+
+Pooled paired differences against Swiss pairing with Bradley-Terry ranking
+(rounds study: 19,200 trials; league: 7,200 per schedule):
+
+| pairer (BT ranker) | rounds Δ closeness | rounds Δτ | league (weekly) Δ closeness | league Δτ |
+|---|---|---|---|---|
+| `erank-00` | −0.0033 (z −17) | −0.0005 (z −0.6) | +0.0037 (z 13) | +0.0031 (z 2.0) |
+| `erank-50` | +0.0008 (z 4) | +0.0014 (z 1.8) | +0.0071 (z 25) | +0.0032 (z 2.0) |
+| `rank-bt` | +0.0029 (z 15) | −0.0005 (z −0.7) | +0.0085 (z 29) | +0.0026 (z 1.7) |
+| `info-bt-50` | −0.0017 (z −9) | +0.0001 (z 0.2) | +0.0030 (z 11) | +0.0033 (z 2.1) |
+
+1. **Targeting ranking error doesn't improve the ranking.** Pure `erank` ranks no
+   better than Swiss in classic rounds (Δτ −0.0005) and gives up closeness; it is
+   weakly dominated by the best Swiss in 21 of 48 rounds conditions and never beats
+   it. The 50/50 blend is roughly Swiss-equivalent (weakly beats it in 6 of 48).
+2. **Ranking quality barely responds to pairing at all.** Every rating-based
+   pairer, whatever it optimises, lands within about ±0.003 τ of Swiss; in weekly
+   batches they all gain the same ~+0.003 (z ≈ 2). What separates them is match
+   quality, where plain rank pairing (`rank-bt`) stays best.
+3. **Likely reason:** a game's information about strength is p(1−p), largest for
+   even games, which Swiss and every close-pairing scheme already play. Choosing
+   *which* even games barely changes how much the event learns; the number of games
+   does. The one-step (myopic) gain and the Gaussian approximation may also leave
+   some headroom on the table.
+
+**Suggested next test:** an oracle pairer that knows the true strengths, to measure
+the most ranking quality any pairing could reach with the same number of games. If
+even the oracle gains little τ over Swiss, the ranking axis is effectively fixed by
+game count, and beating Swiss is a match-quality question.
+
 ## Round 3: pairing for information (`info-bt`, added 2026-10-18)
 
 `info-bt` fits Bradley-Terry with its uncertainty (Laplace posterior) before each

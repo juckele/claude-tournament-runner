@@ -60,6 +60,12 @@ for _p in INFO_LAMS:
     PAIRER_ORDER.append(_p)
 INFO_DASH = {"info-bt-00": (0, (1, 1.5)), "info-bt-25": (0, (3, 2)), "info-bt-50": (0, (6, 2)),
              "info-bt-75": "solid"}
+# erank (pair to reduce total ranking error): same ink, hollow markers, labelled.
+ERANK_LAMS = {"erank-00": 0.0, "erank-50": 0.5}
+for _p in ERANK_LAMS:
+    PAIRER_COLOR[_p] = "#0b0b0b"
+    PAIRER_ORDER.append(_p)
+    INFO_DASH[_p] = (0, (8, 2, 1, 2))
 RANKER_ORDER = ["swiss-tb", "score", "pct", "elo", "bt", "pu"]
 RANKER_MARKER = {"swiss-tb": "o", "score": "s", "pct": "^", "elo": "v", "bt": "D", "pu": "P"}
 RANKER_LABEL = {"swiss-tb": "points + Buchholz + SB", "score": "points", "pct": "points per game",
@@ -173,10 +179,14 @@ def _pareto_key(fig, pairers, rankers):
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
     ph = [Line2D([0], [0], color=PAIRER_COLOR[p], lw=2, marker="o", ms=6, mec=SURFACE, label=p)
-          for p in pairers if p not in INFO_LAMS]
+          for p in pairers if p not in INFO_LAMS and p not in ERANK_LAMS]
     if any(p in INFO_LAMS for p in pairers):
         ph.append(Line2D([0], [0], color=PAIRER_COLOR["info-bt-50"], lw=2, marker="o", ms=6,
                          mec=SURFACE, label="info-bt (all λ, BT)"))
+    if any(p in ERANK_LAMS for p in pairers):
+        ph.append(Line2D([0], [0], color="none", marker="D", ms=7, fillstyle="top",
+                         markerfacecolor=PAIRER_COLOR["erank-00"], markerfacecoloralt=SURFACE,
+                         mec=PAIRER_COLOR["erank-00"], mew=1.0, label="erank (e0, e50; BT)"))
     rh = [Line2D([0], [0], color="none", marker=RANKER_MARKER[r], ms=7, mfc=INK2, mec=SURFACE,
                  label=RANKER_LABEL[r]) for r in rankers]
     mh = [Line2D([0], [0], color="none", marker="o", ms=14, mfc="none", mec=INK, mew=1.6,
@@ -228,10 +238,18 @@ def plot_pareto(summary, verdicts, cells, path, title=None, ncols=3):
             d = s[s.pairer == p]
             pairers_seen.add(p)
             col = PAIRER_COLOR[p]
-            if p in INFO_LAMS:
-                # The info-bt family is near-identical across lambda; one point each
-                # (Bradley-Terry ranker), no stem, to keep the panel readable.
+            if p in INFO_LAMS or p in ERANK_LAMS:
+                # Model-based families: one point each (Bradley-Terry ranker), no
+                # stem, to keep the panel readable.
                 d = d[d.ranker == "bt"]
+            if p in ERANK_LAMS:
+                for _, r in d.iterrows():
+                    ax.plot(r.mq, r.tau, marker="D", ms=7, color=col, fillstyle="top",
+                            mfcalt=SURFACE, mec=col, mew=1.0, ls="none", zorder=3)
+                    ax.annotate(f"e{int(ERANK_LAMS[p] * 100)}", (r.mq, r.tau),
+                                textcoords="offset points", xytext=(5, -9), fontsize=6.5,
+                                color=INK)
+                continue
             else:
                 ax.plot([d.mq.mean()] * 2, [d.tau.min(), d.tau.max()], color=col, lw=1.2,
                         alpha=0.55, zorder=1, solid_capstyle="round")
