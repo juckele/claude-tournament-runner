@@ -6,9 +6,9 @@ one experimental condition: (table, n, schedule, seeding, bye_points).
 
 Dominance is tested paired: within a cell every system played the same
 fields and schedules, so for each trial we take the difference between a
-system and the reference on both axes and ask whether both mean differences
-are positive with |z| >= Z (default 3, roughly a Bonferroni correction for
-comparing ~35 systems at 5%).
+system and the reference on both axes. Each axis is better / worse / tied by
+|z| >= Z (default 3, roughly a Bonferroni correction for comparing ~35
+systems at 5%); see classify() for the six verdicts.
 
 Two Swiss references are used:
   swiss/swiss-tb  standard practice: Swiss pairing, points + Buchholz + SB
@@ -56,6 +56,29 @@ def summarize(df):
     return out
 
 
+VERDICTS = ["dominates", "weakly dominates", "tie", "trade-off", "weakly dominated",
+            "dominated"]
+
+
+def classify(zmq, ztau, z=Z):
+    """Per axis: better (z >= Z), worse (z <= -Z) or tie. Then:
+    dominates = better on both; weakly dominates = better on one, tie on the
+    other; tie = tie on both; trade-off = better on one, worse on the other;
+    weakly dominated / dominated mirror the first two."""
+    a = [1 if x >= z else -1 if x <= -z else 0 for x in (zmq, ztau)]
+    if a == [1, 1]:
+        return "dominates"
+    if a == [-1, -1]:
+        return "dominated"
+    if 1 in a and -1 in a:
+        return "trade-off"
+    if 1 in a:
+        return "weakly dominates"
+    if -1 in a:
+        return "weakly dominated"
+    return "tie"
+
+
 def paired_vs(df, ref_system=REF, z=Z):
     """Paired differences of every system against a reference system, per cell.
     ref_system may be 'swiss/best'."""
@@ -81,14 +104,7 @@ def paired_vs(df, ref_system=REF, z=Z):
             se = diff.std(ddof=1) / np.sqrt(k) if k > 1 else diff.mean() * np.nan
             zmq = m["mq"] / se["mq"] if se["mq"] > 0 else 0.0
             ztau = m["tau"] / se["tau"] if se["tau"] > 0 else 0.0
-            if zmq >= z and ztau >= z:
-                verdict = "dominates"
-            elif zmq <= -z and ztau <= -z:
-                verdict = "dominated"
-            elif (zmq >= z and ztau <= -z) or (zmq <= -z and ztau >= z):
-                verdict = "trade-off"
-            else:
-                verdict = "unresolved"
+            verdict = classify(zmq, ztau, z)
             rows.append(dict(zip(CELL, cell), system=sysname, reference=ref, trials=k,
                              d_mq=m["mq"], z_mq=zmq, d_tau=m["tau"], z_tau=ztau,
                              verdict=verdict))
@@ -122,8 +138,13 @@ def _style(ax):
 
 
 def plot_pareto(summary, verdicts, cells, path, title=None, ncols=3):
-    """Small multiples: match quality (x) vs ranking quality (y). Gray = all
-    systems, blue = Swiss reference, orange = systems that dominate it."""
+    """Small multiples: match quality (x) vs ranking quality (y).
+
+    `verdicts` are paired tests against swiss/best. Gray = every system; blue
+    dot = standard Swiss (swiss/swiss-tb); blue ring = the best Swiss variant in
+    the cell, whose up-right quadrant is shaded; orange dot = dominates the best
+    Swiss; orange ring = weakly dominates it (better on one axis, tied on the
+    other)."""
     cells = list(cells)
     nrows = int(np.ceil(len(cells) / ncols))
     fig, axes = plt.subplots(nrows, ncols, figsize=(4.2 * ncols, 3.6 * nrows), squeeze=False,
@@ -134,37 +155,51 @@ def plot_pareto(summary, verdicts, cells, path, title=None, ncols=3):
         _style(ax)
         sel = np.all([summary[c] == v for c, v in zip(CELL, cell)], axis=0)
         s = summary[sel]
-        vsel = np.all([verdicts[c] == v for c, v in zip(CELL, cell)], axis=0) if len(verdicts) else []
-        v = verdicts[vsel] if len(verdicts) else verdicts
-        dom = set(v[v.verdict == "dominates"].system) if len(v) else set()
-        ref = s[s.system == REF]
-        if not ref.empty:
-            rx, ry = ref.mq.iloc[0], ref.tau.iloc[0]
-            ax.fill_between([rx, max(s.mq.max(), rx) + 0.02], ry, max(s.tau.max(), ry) + 0.02,
+        v = verdicts[np.all([verdicts[c] == x for c, x in zip(CELL, cell)], axis=0)]
+        best_name = v.reference.iloc[0] if len(v) else REF
+        dom = set(v[v.verdict == "dominates"].system)
+        weak = set(v[v.verdict == "weakly dominates"].system)
+        std = s[s.system == REF]
+        best = s[s.system == best_name]
+        if not best.empty:
+            bx, by = best.mq.iloc[0], best.tau.iloc[0]
+            ax.fill_between([bx, max(s.mq.max(), bx) + 0.02], by, max(s.tau.max(), by) + 0.02,
                             color=SLOTS[1], alpha=0.06, linewidth=0)
-        other = s[(s.system != REF) & (~s.system.isin(dom))]
+        special = {REF, best_name} | dom | weak
+        other = s[~s.system.isin(special)]
         ax.errorbar(other.mq, other.tau, xerr=other.mq_se, yerr=other.tau_se, fmt="o", ms=4,
                     color=MUTED, ecolor=GRID, elinewidth=1, alpha=0.9)
-        if not ref.empty:
-            ax.errorbar(ref.mq, ref.tau, xerr=ref.mq_se, yerr=ref.tau_se, fmt="o", ms=8,
-                        color=SLOTS[0], mec=SURFACE, mew=2, elinewidth=1.2, zorder=4)
-            ax.annotate("Swiss", (rx, ry), textcoords="offset points", xytext=(6, -10),
-                        fontsize=8, color=INK)
-        d = s[s.system.isin(dom)]
-        if not d.empty:
-            ax.errorbar(d.mq, d.tau, xerr=d.mq_se, yerr=d.tau_se, fmt="o", ms=8, color=SLOTS[1],
-                        mec=SURFACE, mew=2, elinewidth=1.2, zorder=5)
-            best = d.sort_values("tau", ascending=False).head(3)
-            for _, r in best.iterrows():
-                ax.annotate(r.system, (r.mq, r.tau), textcoords="offset points", xytext=(6, 4),
+        if not std.empty:
+            ax.errorbar(std.mq, std.tau, xerr=std.mq_se, yerr=std.tau_se, fmt="o", ms=7,
+                        color=SLOTS[0], mec=SURFACE, mew=1.5, elinewidth=1.2, zorder=4)
+            ax.annotate("Swiss (std)", (std.mq.iloc[0], std.tau.iloc[0]),
+                        textcoords="offset points", xytext=(-7, -11), fontsize=7, color=INK,
+                        ha="right")
+        if not best.empty and best_name != REF:
+            ax.errorbar(best.mq, best.tau, xerr=best.mq_se, yerr=best.tau_se, fmt="o", ms=9,
+                        mfc="none", mec=SLOTS[0], mew=2, ecolor=SLOTS[0], elinewidth=1.2,
+                        zorder=4)
+            ax.annotate(f"best Swiss ({best_name.split('/')[1]})", (bx, by),
+                        textcoords="offset points", xytext=(-8, 5), fontsize=7, color=INK,
+                        ha="right")
+        for group, filled in [(weak, False), (dom, True)]:
+            d = s[s.system.isin(group)]
+            if d.empty:
+                continue
+            ax.errorbar(d.mq, d.tau, xerr=d.mq_se, yerr=d.tau_se, fmt="o", ms=8,
+                        mfc=SLOTS[1] if filled else "none", mec=SLOTS[1], mew=2,
+                        ecolor=SLOTS[1], elinewidth=1.2, zorder=5)
+            for _, r in d.sort_values("tau", ascending=False).head(2).iterrows():
+                ax.annotate(r.system, (r.mq, r.tau), textcoords="offset points", xytext=(8, 5),
                             fontsize=7, color=INK)
         tbl, n, sch, seed, bp = cell
-        ax.set_title(f"{tbl}  ·  N={n}  ·  {sch}", fontsize=9, color=INK, loc="left")
+        extra = f"  ·  {seed}" if seed != "random" else ""
+        ax.set_title(f"{tbl}  ·  N={n}  ·  {sch}{extra}", fontsize=9, color=INK, loc="left")
         ax.set_xlabel("match quality (mean closeness)", fontsize=8, color=INK2)
         ax.set_ylabel("ranking quality (Kendall τ)", fontsize=8, color=INK2)
     if title:
-        fig.suptitle(title, fontsize=11, color=INK, x=0.01, ha="left")
-    fig.tight_layout()
+        fig.suptitle(title, fontsize=10, color=INK, x=0.01, ha="left")
+    fig.tight_layout(rect=(0, 0, 1, 1 - 0.3 / (3.6 * nrows) if title else 1))
     fig.savefig(path, dpi=130, facecolor=SURFACE)
     plt.close(fig)
 
@@ -215,11 +250,11 @@ def verdict_table(verdicts):
         return verdicts
     t = verdicts.pivot_table(index="system", columns="verdict", values="trials", aggfunc="count",
                              fill_value=0)
-    for c in ["dominates", "trade-off", "unresolved", "dominated"]:
+    for c in VERDICTS:
         if c not in t:
             t[c] = 0
-    t = t[["dominates", "trade-off", "unresolved", "dominated"]]
-    return t.sort_values(["dominates", "dominated"], ascending=[False, True])
+    t = t[VERDICTS]
+    return t.sort_values(VERDICTS[:3], ascending=False)
 
 
 def write_outputs(df, outdir):

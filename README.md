@@ -53,8 +53,11 @@ python3 -m pairlab report results/adhoc.csv --out results/adhoc/
 6. **Scoring** on both axes.
 
 Every system in a trial plays the same field and schedule, so comparisons are
-paired. A system *dominates* a reference in a cell when both paired mean differences
-are positive with z ≥ 3 (roughly Bonferroni for ~35 systems). Two Swiss references
+paired. Per axis, a system is better or worse than a reference in a cell when the
+paired mean difference has |z| ≥ 3 (roughly Bonferroni for ~35 systems), otherwise
+tied. It *dominates* when better on both axes and *weakly dominates* when better on
+one and tied on the other (mirrored for *dominated*; better on one and worse on the
+other is a *trade-off*). Two Swiss references
 are used: `swiss/swiss-tb` (standard practice) and `swiss/best` (the Swiss pairer
 with whichever ranker ranks best in that cell — the strongest Swiss).
 
@@ -86,6 +89,12 @@ paired first), `candidates` (that player's preferred opponents) and `cost` (used
 the min-cost fallback when backtracking can't avoid rematches). Register it in
 `PAIRERS`. A ranker is a function `(state, rng) -> players best-first`; register it
 in `RANKERS`. `State` holds scores, games, opponents met, colours, byes and seeds.
+
+## Results so far
+
+See [`RESULTS.md`](RESULTS.md): no baseline system significantly beats the best
+Swiss in any of 162 conditions; the first weak win is Elo matchmaking in weekly
+batches.
 
 ## Outcome tables
 

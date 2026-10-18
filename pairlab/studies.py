@@ -90,12 +90,15 @@ def report(name, df, outdir):
     col = {"rounds": "schedule", "sizes": "n", "league": "schedule", "seeding": "seeding"}[name]
     cells = [tuple(c) for c in summ[summ[col] == key][CELL].drop_duplicates().itertuples(index=False)]
     cells.sort(key=lambda c: (c[0], c[1]))
-    plot_pareto(summ, v_std, cells, os.path.join(outdir, "pareto.png"),
-                title=f"{name}: every system at {col} = {key} (blue = Swiss, orange = beats Swiss on both axes)")
+    plot_pareto(summ, v_best, cells, os.path.join(outdir, "pareto.png"),
+                title=f"{name}: every pairer/ranker system at {col} = {key}")
     lines += ["## Match quality vs ranking quality", "",
-              f"Every pairer/ranker system at {col} = {key}. Blue is Swiss with standard "
-              "tiebreaks; orange systems beat it on both axes (paired, |z| >= 3); the shaded "
-              "quadrant is where a system has to land to beat Swiss.", "", "![](pareto.png)", ""]
+              f"Every pairer/ranker system at {col} = {key}, with standard errors. Blue dot: "
+              "standard Swiss (points, Buchholz, Sonneborn-Berger). Blue ring: the best Swiss "
+              "variant in that cell (Swiss pairing with whichever ranker ranks best). The shaded "
+              "quadrant is where a system must land to beat it. Orange dot: beats the best Swiss "
+              "on both axes (paired |z| >= 3); orange ring: better on one axis, tied on the other.",
+              "", "![](pareto.png)", ""]
 
     if cfg["sweep"]:
         x = "rounds" if cfg["sweep"] == "rounds" else "n"
@@ -115,18 +118,22 @@ def report(name, df, outdir):
                      ("the best Swiss variant in each cell (swiss/best)", v_best)]:
         vt = verdict_table(v).head(12).reset_index()
         lines += [f"## Against {title}", "",
-                  f"Cells (out of {v.groupby(CELL).ngroups}) where each system dominates, "
-                  "trades off against, can't be separated from, or is dominated by the reference. "
-                  "Top 12 systems by cells dominated.", "", _md(vt), ""]
+                  f"Number of cells (out of {v.groupby(CELL).ngroups}) in each verdict. Per axis a "
+                  "system is better or worse than the reference when the paired difference has "
+                  "|z| >= 3, otherwise tied. *Dominates* = better on both axes; *weakly dominates* = "
+                  "better on one, tied on the other. Top 12 systems.", "", _md(vt), ""]
 
     # Per-cell list of systems that beat the strongest Swiss.
     rows = []
     for cell, d in v_best.groupby(CELL):
-        dom = d[d.verdict == "dominates"].sort_values("d_tau", ascending=False)
+        dom = d[d.verdict.isin(["dominates", "weakly dominates"])]
+        dom = dom.assign(o=dom.verdict != "dominates").sort_values(["o", "d_tau"],
+                                                                  ascending=[True, False])
         lab = {"table": cell[0], "N": cell[1], "schedule": cell[2], "seeding": cell[3],
                "best Swiss": d.reference.iloc[0]}
-        lab["beats it on both axes (Δτ, Δmq)"] = ", ".join(
-            f"{r.system} (+{r.d_tau:.3f}, +{r.d_mq:.3f})" for r in dom.head(3).itertuples()) or "—"
+        lab["beats it (Δτ, Δmq; * = weakly)"] = ", ".join(
+            f"{r.system}{'' if r.verdict == 'dominates' else '*'} ({r.d_tau:+.3f}, {r.d_mq:+.3f})"
+            for r in dom.head(3).itertuples()) or "—"
         rows.append(lab)
     lines += ["## Per cell: what beats the best Swiss", "", _md(pd.DataFrame(rows)), ""]
 
