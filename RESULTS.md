@@ -12,6 +12,70 @@ pairing with whichever ranker ranks best there): per axis a system is better or
 worse when |z| ≥ 3, otherwise tied. *Dominates* = better on both axes, *weakly
 dominates* = better on one axis and tied on the other.
 
+## Round 6: No Diggity (added 2026-10-18)
+
+**Model.** Each player is a normal performance distribution N(μ, σ²); White adds a
+fitted advantage; a fitted draw band δ turns small performance gaps into draws
+(an ordered-probit / Thurstone model). Fitted by maximum a posteriori with
+L-BFGS on analytic gradients (checked against finite differences to 1e-8),
+warm-started each batch. Dials: `sigma_sd` (0 = every σ fixed at 1, the
+`-fixed` variants; default 0.3 = learned) and `mu_sd`, the prior width on μ.
+On 20,000 simulated games the fit recovers known players (μ correlation 0.998,
+σ rank correlation 0.92, White advantage and draw band within 0.001).
+
+**Pairer (`nd-info`).** For every allowed pair, a virtual game is added and the
+movement of the whole field's ratings (sum of |Δμ|) is measured for "i wins" and
+"j wins" (each averaged over colours); the pair's score is the smaller of the
+two. The fit and the inverse of its Fisher information are cached once per
+batch; each virtual game's effect is one Newton step from the cached fit.
+Matching is greedy plus 2-opt swaps.
+
+**Performance audit** ([results/nodiggity-audit.md](results/nodiggity-audit.md),
+`tools/audit_nodiggity.py`):
+- A fit takes 4–14 ms (16–64 players, 3–11 rounds); warm starts save only ~10–20%.
+- Scoring every pair with exact refits costs ~10 s per round at 32 players
+  (~80 s per tournament): unusable for studies. The one-step "influence" method
+  takes under 1 ms per round, orders pairs almost identically (Spearman
+  0.995–0.999 with exact) and its chosen games capture 94–102% of the exact
+  method's value. A rank-1 Sherman-Morrison variant was closer in magnitude but
+  ordered pairs worse (0.96–0.99), so `influence` is the default.
+- **Found and fixed a 15× slowdown in all parallel runs:** each worker process's
+  BLAS spawned its own threads and oversubscribed the 2 cores (1,638 ms vs 108 ms
+  per No Diggity tournament). BLAS is now pinned to one thread per worker;
+  re-simulated results are bit-identical. Earlier studies ran with the slow
+  setting.
+- A whole tournament with `nd-info` now takes ~90 ms, against ~20 ms for Swiss
+  and ~290 ms for `erank`.
+
+**Prior tuning.** With the first default prior (μ sd 1.5) the No Diggity ranker
+was 0.003 τ worse than Bradley-Terry on identical games. A sensitivity check
+(`tools/nd_prior_sensitivity.py`, 3 tables × 60 Swiss-paired leagues) found μ sd
+0.5–1.0 ranks as well as Bradley-Terry; the default is now 0.75 and the studies
+were rerun with it. (Tuned on a small separate sample, not the study data.)
+
+**Results**, against Swiss pairing with Bradley-Terry ranking unless stated:
+
+| | rounds study | weekly league (league4) | 9 rounds (league study) |
+|---|---|---|---|
+| `nd` ranker vs `bt`, same games | Δτ −0.0005 | Δτ −0.0000 | Δτ −0.0002 |
+| `nd` (σ learned) vs `nd-fixed`, same games | Δτ 0.0000 | 0.0000 | 0.0000 |
+| `nd-info/bt` Δ closeness, Δτ | −0.0004, +0.0013 | +0.0048, +0.0028 | −0.0032, +0.0011 |
+| `nd-info/bt` vs best Swiss (better on one axis, tie on other / tie / worse on one) | 2 / 41 / 5 of 48 | 10 / 8 / 0 of 18 | 0 / 11 / 7 of 18 |
+| `rank-bt/bt` vs best Swiss | 14 / 34 / 0 of 48 | 17 / 1 / 0 of 18 | 5 / 13 / 0 of 18 |
+
+1. **As a ranker, No Diggity ties Bradley-Terry** once its prior is tuned, on
+   every table (per-table differences within ±0.0015). The extra structure,
+   White advantage, draw band and per-player σ, doesn't buy ranking accuracy at
+   these game counts.
+2. **Learning each player's standard deviation changes nothing**, even on
+   `normal-mixed`, where players genuinely differ in consistency. With 4–11
+   games per player there isn't enough data to tell steady from streaky players.
+3. **As a pairer, `nd-info` is Swiss-equivalent in classic rounds** and gives
+   closer games in weekly batches, but `rank-bt` beats it in both formats. Its
+   closeness edge fades and turns negative as rounds increase (+0.001 at 5
+   rounds, −0.003 at 11): late in an event the biggest rating movements come
+   from games that aren't the closest. No ranking gain (Δτ ≤ +0.003, z < 2).
+
 ## Round 5: oracle pairing, how much headroom is there? (added 2026-10-18)
 
 Two oracles that see the true strengths (not real systems; excluded from all

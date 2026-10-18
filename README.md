@@ -28,6 +28,8 @@ python3 -m pytest -q                      # pairing invariants
 python3 -m pairlab study rounds           # preset study -> results/rounds/README.md
 python3 -m pairlab study all              # rounds, sizes, league, seeding (a few hours on 2 cores)
 python3 -m pairlab study rounds --pairers info-bt-50 --append   # add one pairer to a study
+python3 -m pairlab study rounds --pairers swiss --rankers nd --append   # add a ranker to a pairer
+python3 tools/audit_nodiggity.py           # No Diggity timing / accuracy audit
 
 # ad-hoc grid
 python3 -m pairlab run --tables data/dice-pools.tsv data/normal-equal.tsv \
@@ -79,6 +81,7 @@ Pairers (`pairlab/pairers.py`):
 | `rank-pu` | the same, ranking by Pong-Uckele |
 | `info-bt-00/25/50/75` | pair for information: Bradley-Terry posterior; pair weight = λ·closeness + (1−λ)·(expected information on the gap × order uncertainty), greedy matching, planned games folded into the posterior within a batch; λ = 0, 0.25, 0.5, 0.75 |
 | `erank-00`, `erank-50` | pair to reduce total ranking error: Bradley-Terry posterior; each game scored by the expected drop in misordered pairs across all players (exact Gaussian covariance update, Gauss-Hermite over the mean shift); λ = 0 pure, 0.5 blended with closeness; greedy + 2-opt matching |
+| `nd-info`, `nd-info-fixed` | No Diggity information gain: add a virtual game for each pair, measure total rating movement for "i wins" and "j wins", score = the smaller; one cached Newton step per virtual game; σ learned or fixed (see `pairlab/nodiggity.py`, `results/nodiggity-audit.md`) |
 | `oracle-near`, `oracle-erank` | reference oracles that see the true strengths (not real systems; excluded from verdicts): true-neighbour pairing, and erank scored against the true order with true outcome probabilities. Shown in each study's `headroom.png` |
 
 Rankers (`pairlab/rankers.py`): `score` (points), `swiss-tb` (points, Buchholz,
@@ -86,7 +89,10 @@ Sonneborn-Berger), `pct` (points per game played), `bt` (ridge-regularised
 Bradley-Terry fit), `elo` (sequential Elo), `pu` (Pong-Uckele: points flow from a
 source to every player, from each player to a sink and to everyone who beat them,
 iterated to a fixed point; the same flow on the reversed results is subtracted so
-a player with no games nets zero; draws count half each way).
+a player with no games nets zero; draws count half each way). `nd` / `nd-fixed` (No
+Diggity: each player a normal performance distribution N(μ, σ²) with a fitted
+White advantage and draw band, fitted by MAP; players ranked by model expected
+score against the field; `-fixed` holds every σ at 1).
 
 Seeding: `--seeding random` (default — pairers know nothing about players before
 the event), `perfect`, or `noisy:SD` (true-strength z-score plus N(0, SD) noise).

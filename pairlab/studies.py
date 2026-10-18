@@ -108,13 +108,19 @@ def report(name, df, outdir):
     cells = [tuple(c) for c in summ[summ[col] == key][CELL].drop_duplicates().itertuples(index=False)]
     cells.sort(key=lambda c: (c[0], c[1]))
     plot_pareto(summ, v_best, cells, os.path.join(outdir, "pareto.png"),
+                title=f"{name}: each pairer with its best ranker at {col} = {key}",
+                best_only=True)
+    plot_pareto(summ, v_best, cells, os.path.join(outdir, "pareto_all.png"),
                 title=f"{name}: every pairer/ranker system at {col} = {key}")
     lines += ["## Match quality vs ranking quality", "",
-              f"Every pairer/ranker system at {col} = {key}, with standard errors. Blue dot: "
-              "standard Swiss (points, Buchholz, Sonneborn-Berger). Blue ring: the best Swiss "
-              "variant in that cell (Swiss pairing with whichever ranker ranks best). The shaded "
-              "quadrant is where a system must land to beat it. Orange dot: beats the best Swiss "
-              "on both axes (paired |z| >= 3); orange ring: better on one axis, tied on the other.",
+              f"Each pairer with its best ranker at {col} = {key} (every combination is in "
+              f"[pareto_all.png](pareto_all.png)), with standard errors. Model-based pairer "
+              f"families (info-bt, erank, nd-info) are near-black and labelled, each shown by its "
+              f"best member. Colour = pairer, marker shape = ranker. Black ring: the best Swiss "
+              "variant in that cell (Swiss pairing with whichever ranker ranks best); the shaded "
+              "quadrant is where a system must land to beat it. Bold outline (named): beats the "
+              "best Swiss on at least one axis with the other tied (paired |z| >= 3; '(weakly)' "
+              "when one axis is tied).",
               "", "![](pareto.png)", ""]
 
     if summ_all.pairer.isin(list(ORACLES)).any():

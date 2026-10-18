@@ -186,7 +186,7 @@ def _style(ax):
     ax.set_axisbelow(True)
 
 
-def _pareto_key(fig, pairers, rankers):
+def _pareto_key(fig, pairers, rankers, best_only=False):
     """One key for the whole figure: pairer colours, ranker shapes, and the
     reference marks."""
     from matplotlib.lines import Line2D
@@ -194,6 +194,11 @@ def _pareto_key(fig, pairers, rankers):
     ph = [Line2D([0], [0], color=PAIRER_COLOR[p], lw=2, marker="o", ms=6, mec=SURFACE, label=p)
           for p in pairers if p not in INFO_LAMS and p not in ERANK_LAMS and p not in ORACLES
           and p not in ND_PAIRERS]
+    if best_only:
+        if any(_family(p) for p in pairers):
+            ph.append(Line2D([0], [0], color="none", marker="o", ms=6, mfc=INK, mec=SURFACE,
+                             label="ink = model-based (labelled)"))
+        pairers = []  # skip the per-family entries below
     if any(p in ND_PAIRERS for p in pairers):
         ph.append(Line2D([0], [0], color=INK, lw=2, label="nd-info (labelled stems)"))
     if any(p in INFO_LAMS for p in pairers):
@@ -212,17 +217,41 @@ def _pareto_key(fig, pairers, rankers):
           Patch(facecolor=SLOTS[1], alpha=0.12, label="region that beats the best Swiss")]
     kw = dict(frameon=False, fontsize=8, labelcolor=INK2, handletextpad=0.4, columnspacing=1.2,
               title_fontsize=8, alignment="left")
-    l1 = fig.legend(handles=ph, title="Pairer (colour)", loc="lower left", ncol=5,
+    l1 = fig.legend(handles=ph, title="Pairer (colour)", loc="lower left", ncol=4,
                     bbox_to_anchor=(0.01, 0.0), **kw)
-    l2 = fig.legend(handles=rh, title="Ranker (shape)", loc="lower center", ncol=3,
-                    bbox_to_anchor=(0.62, 0.0), **kw)
+    l2 = fig.legend(handles=rh, title="Ranker (shape)" if not best_only else
+                    "Best ranker (shape)", loc="lower center", ncol=3,
+                    bbox_to_anchor=(0.64, 0.0), **kw)
     l3 = fig.legend(handles=mh, title="Marks", loc="lower right", ncol=1,
                     bbox_to_anchor=(0.995, 0.0), **kw)
     for lg in (l1, l2, l3):
         lg.get_title().set_color(INK)
 
 
-def plot_pareto(summary, verdicts, cells, path, title=None, ncols=3):
+FAMILIES = [("info-bt", INFO_LAMS), ("erank", ERANK_LAMS), ("nd-info", ND_PAIRERS)]
+
+
+def best_per_pairer(s):
+    """One row per pairer (its best ranker by tau); each ink family (info-bt,
+    erank, nd-info variants) collapsed to its single best member."""
+    s = s.loc[s.groupby("pairer").tau.idxmax()]
+    keep = []
+    for _, members in FAMILIES:
+        fam = s[s.pairer.isin(list(members))]
+        if len(fam):
+            keep.append(fam.tau.idxmax())
+    in_fam = s.pairer.isin([m for _, ms in FAMILIES for m in ms])
+    return s[~in_fam | s.index.isin(keep)]
+
+
+def _family(p):
+    for name, members in FAMILIES:
+        if p in members:
+            return name
+    return None
+
+
+def plot_pareto(summary, verdicts, cells, path, title=None, ncols=3, best_only=False):
     """Small multiples: match quality (x) vs ranking quality (y), one point per
     system. Colour = pairer, marker shape = ranker; a stem in the pairer's
     colour joins its rankers (they share the pairer's games, so the same x).
@@ -251,7 +280,21 @@ def plot_pareto(summary, verdicts, cells, path, title=None, ncols=3):
             ax.axvline(bx, color=MUTED, lw=0.6, ls=(0, (3, 3)), zorder=0)
             ax.axhline(by, color=MUTED, lw=0.6, ls=(0, (3, 3)), zorder=0)
         s = s[~s.pairer.isin(list(ORACLES))]  # oracles go in plot_headroom
-        for p in [q for q in PAIRER_ORDER if q in set(s.pairer)]:
+        if best_only:
+            s = best_per_pairer(s)
+            for _, r in s.iterrows():
+                pairers_seen.add(r.pairer)
+                rankers_seen.add(r.ranker)
+                col = PAIRER_COLOR[r.pairer]
+                ax.errorbar(r.mq, r.tau, xerr=r.mq_se, yerr=r.tau_se, fmt="none", ecolor=col,
+                            alpha=0.35, elinewidth=0.8, zorder=1)
+                ax.plot(r.mq, r.tau, marker=RANKER_MARKER.get(r.ranker, "o"), ms=8, color=col,
+                        mec=SURFACE, mew=1.0, ls="none", zorder=3)
+                fam = _family(r.pairer)
+                if fam:
+                    ax.annotate(fam, (r.mq, r.tau), textcoords="offset points", xytext=(6, -10),
+                                fontsize=6.5, color=INK)
+        for p in [q for q in PAIRER_ORDER if q in set(s.pairer)] if not best_only else []:
             d = s[s.pairer == p]
             pairers_seen.add(p)
             col = PAIRER_COLOR[p]
@@ -293,14 +336,19 @@ def plot_pareto(summary, verdicts, cells, path, title=None, ncols=3):
             ax.annotate(f"best Swiss: {best_name.split('/')[1]}", (bx, by),
                         textcoords="offset points", xytext=(-9, 7), fontsize=7, color=INK,
                         ha="right")
-        for k, (_, r) in enumerate(winners.sort_values("d_tau", ascending=False).iterrows()):
-            row = s[s.system == r.system].iloc[0]
+        k = 0
+        for _, r in winners.sort_values("d_tau", ascending=False).iterrows():
+            rows = s[s.system == r.system]
+            if rows.empty:
+                continue
+            row = rows.iloc[0]
             ax.plot(row.mq, row.tau, marker=RANKER_MARKER.get(row.ranker, "o"), ms=10,
                     mfc="none", mec=INK, mew=2.2, zorder=5)
             if k < 2:
                 tag = "" if r.verdict == "dominates" else " (weakly)"
                 ax.annotate(r.system + tag, (row.mq, row.tau), textcoords="offset points",
                             xytext=(9, 4 - 11 * k), fontsize=7, color=INK)
+            k += 1
         tbl, n, sch, seed, bp = cell
         extra = f"  ·  seeds {seed}" if seed != "random" else ""
         ax.set_title(f"{tbl}  ·  N={n}  ·  {sch}{extra}", fontsize=9, color=INK, loc="left")
@@ -309,7 +357,7 @@ def plot_pareto(summary, verdicts, cells, path, title=None, ncols=3):
     if title:
         fig.suptitle(title, fontsize=10, color=INK, x=0.01, ha="left")
     _pareto_key(fig, [p for p in PAIRER_ORDER if p in pairers_seen],
-                [r for r in RANKER_ORDER if r in rankers_seen])
+                [r for r in RANKER_ORDER if r in rankers_seen], best_only=best_only)
     H = fig.get_figheight()
     fig.tight_layout(rect=(0, key_h / H, 1, 1 - (0.3 / H if title else 0)))
     fig.savefig(path, dpi=130, facecolor=SURFACE)
