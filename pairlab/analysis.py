@@ -66,15 +66,23 @@ for _p in ORACLES:
     PAIRER_COLOR[_p] = "#0b0b0b"
     PAIRER_ORDER.append(_p)
 INFO_DASH_ORACLE = {"oracle-near": (0, (1, 3)), "oracle-erank": (0, (5, 1, 1, 1, 1, 1))}
+# No Diggity pairers: ink stems, labelled directly at the top of the stem.
+ND_PAIRERS = {"nd-info": "nd-info", "nd-info-fixed": "nd-info (fixed σ)"}
+for _p in ND_PAIRERS:
+    PAIRER_COLOR[_p] = "#0b0b0b"
+    PAIRER_ORDER.append(_p)
+INFO_DASH_ND = {"nd-info": "solid", "nd-info-fixed": (0, (4, 2))}
 ERANK_LAMS = {"erank-00": 0.0, "erank-50": 0.5}
 for _p in ERANK_LAMS:
     PAIRER_COLOR[_p] = "#0b0b0b"
     PAIRER_ORDER.append(_p)
     INFO_DASH[_p] = (0, (8, 2, 1, 2))
-RANKER_ORDER = ["swiss-tb", "score", "pct", "elo", "bt", "pu"]
-RANKER_MARKER = {"swiss-tb": "o", "score": "s", "pct": "^", "elo": "v", "bt": "D", "pu": "P"}
+RANKER_ORDER = ["swiss-tb", "score", "pct", "elo", "bt", "pu", "nd", "nd-fixed"]
+RANKER_MARKER = {"swiss-tb": "o", "score": "s", "pct": "^", "elo": "v", "bt": "D", "pu": "P",
+                 "nd": "X", "nd-fixed": "h"}
 RANKER_LABEL = {"swiss-tb": "points + Buchholz + SB", "score": "points", "pct": "points per game",
-                "elo": "sequential Elo", "bt": "Bradley-Terry", "pu": "Pong-Uckele"}
+                "elo": "sequential Elo", "bt": "Bradley-Terry", "pu": "Pong-Uckele",
+                "nd": "No Diggity", "nd-fixed": "No Diggity, fixed σ"}
 INK, INK2, MUTED, GRID, SURFACE = "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#fcfcfb"
 
 
@@ -184,7 +192,10 @@ def _pareto_key(fig, pairers, rankers):
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
     ph = [Line2D([0], [0], color=PAIRER_COLOR[p], lw=2, marker="o", ms=6, mec=SURFACE, label=p)
-          for p in pairers if p not in INFO_LAMS and p not in ERANK_LAMS and p not in ORACLES]
+          for p in pairers if p not in INFO_LAMS and p not in ERANK_LAMS and p not in ORACLES
+          and p not in ND_PAIRERS]
+    if any(p in ND_PAIRERS for p in pairers):
+        ph.append(Line2D([0], [0], color=INK, lw=2, label="nd-info (labelled stems)"))
     if any(p in INFO_LAMS for p in pairers):
         ph.append(Line2D([0], [0], color=PAIRER_COLOR["info-bt-50"], lw=2, marker="o", ms=6,
                          mec=SURFACE, label="info-bt (all λ, BT)"))
@@ -265,7 +276,12 @@ def plot_pareto(summary, verdicts, cells, path, title=None, ncols=3):
                 continue
             else:
                 ax.plot([d.mq.mean()] * 2, [d.tau.min(), d.tau.max()], color=col, lw=1.2,
-                        alpha=0.55, zorder=1, solid_capstyle="round")
+                        alpha=0.55, zorder=1, solid_capstyle="round",
+                        ls=INFO_DASH_ND.get(p, "solid"))
+                if p in ND_PAIRERS:
+                    ax.annotate(ND_PAIRERS[p], (d.mq.mean(), d.tau.max()),
+                                textcoords="offset points", xytext=(0, 7), fontsize=6.5,
+                                color=INK, ha="center")
             for _, r in d.iterrows():
                 rankers_seen.add(r.ranker)
                 ax.errorbar(r.mq, r.tau, yerr=r.tau_se, fmt="none", ecolor=col, alpha=0.35,
@@ -378,7 +394,7 @@ def plot_sweep(summary, x, tables, path, ranker="bt", fixed=None, xlabel=None, t
                 if dp.empty:
                     continue
                 ax.plot(dp[x], dp[metric], marker="o", color=PAIRER_COLOR[p],
-                        ls=INFO_DASH.get(p, INFO_DASH_ORACLE.get(p, "solid")), lw=2 if p == "swiss" else 1.4,
+                        ls=INFO_DASH.get(p, INFO_DASH_ORACLE.get(p, INFO_DASH_ND.get(p, "solid"))), lw=2 if p == "swiss" else 1.4,
                         ms=3 if p in INFO_LAMS else 4, label=p, zorder=3 if p == "swiss" else 2)
             if i == 0:
                 ax.set_title(tbl, fontsize=9, color=INK, loc="left")

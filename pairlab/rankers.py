@@ -164,6 +164,24 @@ def rank_pu(state, rng):
     return _lex([pong_uckele(state)], rng)
 
 
+def nd_rating(state, sigma_sd=0.3):
+    """No Diggity: fit the normal-performance model and return each player's
+    model expected score against the rest of the field."""
+    from .nodiggity import fit_state
+    model, th = fit_state(state, sigma_sd=sigma_sd)
+    return model.expected_scores(th)
+
+
+def rank_nd(state, rng):
+    """No Diggity ranking, player standard deviations learned (sigma_sd = 0.3)."""
+    return _lex([nd_rating(state, 0.3)], rng)
+
+
+def rank_nd_fixed(state, rng):
+    """No Diggity ranking with every player's standard deviation fixed at 1."""
+    return _lex([nd_rating(state, 0.0)], rng)
+
+
 RANKERS = {
     "score": rank_score,
     "swiss-tb": rank_swiss_tb,
@@ -171,6 +189,8 @@ RANKERS = {
     "bt": rank_bt,
     "elo": rank_elo,
     "pu": rank_pu,
+    "nd": rank_nd,
+    "nd-fixed": rank_nd_fixed,
 }
 
 # Rating functions (higher = better) for pairers that pair on a live ranking.

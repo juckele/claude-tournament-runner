@@ -55,7 +55,8 @@ def _md(df, floatfmt=3):
     return "\n".join(out)
 
 
-def run_study(name, trials=None, procs=None, report_only=False, pairers=None, append=False):
+def run_study(name, trials=None, procs=None, report_only=False, pairers=None, append=False,
+              rankers=None):
     """Run (or with report_only, just re-report) a preset study. With `pairers`
     and append=True, only those pairers are simulated and their rows replace
     or extend the existing trials file. Fields, schedules and per-system random
@@ -68,13 +69,14 @@ def run_study(name, trials=None, procs=None, report_only=False, pairers=None, ap
     if not report_only:
         t0 = time.time()
         plist = list(pairers or PAIRERS)
-        print(f"[{name}] running {', '.join(plist)}")
-        df = run_grid(TABLES, cfg["sizes"], cfg["schedules"], plist, list(RANKERS),
+        rlist = list(rankers or RANKERS)
+        print(f"[{name}] running {', '.join(plist)} with rankers {', '.join(rlist)}")
+        df = run_grid(TABLES, cfg["sizes"], cfg["schedules"], plist, rlist,
                       trials or cfg["trials"], seed=1, seeding=cfg["seeding"],
                       bye_points=cfg["bye_points"], procs=procs)
         if append and os.path.exists(csv):
             old = pd.read_csv(csv)
-            old = old[~old.pairer.isin(plist)]
+            old = old[~(old.pairer.isin(plist) & old.ranker.isin(rlist))]
             df = pd.concat([old, df], ignore_index=True)
         df.to_csv(csv, index=False)
         print(f"[{name}] {len(df)} rows in {time.time() - t0:.0f}s")

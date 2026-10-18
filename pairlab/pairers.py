@@ -639,6 +639,120 @@ class OracleNear(RankPairer):
         self.pos[order] = np.arange(state.n)
 
 
+class NDInfo(Pairer):
+    """No Diggity information-gain pairing.
+
+    At the start of each batch, fit the No Diggity model to all results (warm
+    started from the previous batch's fit) and cache the fit and the inverse
+    of its curvature. For each allowed pair (i, j), add a virtual game and
+    measure how far it would move the whole field's ratings: the sum over all
+    players of |change in mu|. Do it for "i wins" and for "j wins" (each
+    averaged over both colour assignments; draws not considered), and score
+    the pair by the SMALLER of the two movements, so a pair only scores well if
+    either result would teach the model something. Pairs are then matched
+    greedily by score and improved with 2-opt swaps; no rematches. The bye goes
+    to the player with the lowest model expected score.
+
+    How the movement is computed (`method`), from cheapest to exact:
+      influence  one Newton step from the cached fit, ignoring the virtual
+                 game's own curvature: d theta = H^-1 g
+      rank1      one Newton step including the virtual game's curvature as a
+                 rank-1 (Gauss-Newton) update, via Sherman-Morrison:
+                 d theta = H^-1 g / (1 + g^T H^-1 g)
+      exact      full refit with the virtual game, warm started (audit only)
+    H is the Fisher information plus the prior precision at the cached fit.
+    """
+    name = "nd-info"
+    sigma_sd = 0.3
+    method = "influence"  # chosen by tools/audit_nodiggity.py: see results/nodiggity-audit.md
+
+    def start(self, state, rng):
+        from .nodiggity import NDModel
+        self.model = NDModel(state.n, sigma_sd=self.sigma_sd)
+        self.th = None
+        self._fit(state)
+
+    def end_batch(self, state, rng):
+        self._fit(state)
+
+    def _fit(self, state):
+        from .nodiggity import games_arrays
+        self.w, self.b, self.y = games_arrays(state)
+        self.th = self.model.fit(self.w, self.b, self.y, self.th)
+        self.H = self.model.fisher(self.th, self.w, self.b)
+        self.Hinv = np.linalg.inv(self.H)
+        self.rating = self.model.expected_scores(self.th)
+
+    def bye_order(self, state, cands, rng):
+        return sorted(cands, key=lambda i: (self.rating[i], -state.seed_rank[i]))
+
+    def movement(self, pi, pj):
+        """Score for pairs (pi[c], pj[c]): min over 'i wins' / 'j wins' of the
+        total |d mu| across the field, each averaged over colours."""
+        M, n = self.model, self.model.n
+        C = len(pi)
+        if C == 0:
+            return np.zeros(0)
+        # Four virtual games per pair: (i white, j white) x (i wins, j wins).
+        W = np.concatenate([pi, pi, pj, pj])
+        B = np.concatenate([pj, pj, pi, pi])
+        Y = np.concatenate([np.ones(C), np.zeros(C), np.zeros(C), np.ones(C)])
+        # rows 0:C = i(white) wins, C:2C = j wins, 2C:3C = i(black) wins, 3C:4C = j wins
+        if self.method == "exact":
+            moves = np.empty(4 * C)
+            mu0 = self.th[:n]
+            for k in range(4 * C):
+                th = M.fit(np.append(self.w, W[k]), np.append(self.b, B[k]),
+                           np.append(self.y, Y[k]), self.th)
+                moves[k] = np.abs(th[:n] - mu0).sum()
+        else:
+            _, g = M.game_terms(self.th, W, B, Y)          # d logp / d coords, (4C, k)
+            cd = M.coords(W, B)                            # (4C, k)
+            Hmu = self.Hinv[:n]                            # (n, P)
+            step = np.einsum("nck,ck->cn", Hmu[:, cd], g)  # H^-1 g restricted to mu
+            if self.method == "rank1":
+                Hg = self.Hinv[cd[:, :, None], cd[:, None, :]]          # (4C, k, k)
+                quad = np.einsum("ck,ckl,cl->c", g, Hg, g)
+                step = step / (1.0 + quad)[:, None]
+            moves = np.abs(step).sum(axis=1)
+        i_wins = 0.5 * (moves[:C] + moves[2 * C:3 * C])
+        j_wins = 0.5 * (moves[C:2 * C] + moves[3 * C:])
+        return np.minimum(i_wins, j_wins)
+
+    def pair(self, state, active, forbid, rng):
+        idx = np.array(sorted(active))
+        k = len(idx)
+        allowed = ~forbid[np.ix_(idx, idx)] & (state.opp[np.ix_(idx, idx)] == 0)
+        np.fill_diagonal(allowed, False)
+        iu, ju = np.triu_indices(k, 1)
+        ok = allowed[iu, ju]
+        iu, ju = iu[ok], ju[ok]
+        W = np.zeros((k, k))
+        if len(iu):
+            sc = self.movement(idx[iu], idx[ju])
+            sc = sc / max(sc.max(), 1e-300) + 1e-9 * rng.random(len(iu))
+            W[iu, ju] = W[ju, iu] = sc
+        used = np.zeros(k, dtype=bool)
+        local = []
+        for e in np.argsort(-W[iu, ju], kind="stable"):
+            a, b = iu[e], ju[e]
+            if not used[a] and not used[b]:
+                used[a] = used[b] = True
+                local.append((int(a), int(b)))
+        if used.all():
+            local = improve_matching(local, lambda a, b: W[a, b], lambda a, b: allowed[a, b])
+            return [(int(idx[a]), int(idx[b])) for a, b in local]
+        pos = {int(x): t for t, x in enumerate(idx)}
+        return min_cost_match([int(x) for x in idx], lambda a, b: 1.0 - W[pos[a], pos[b]],
+                              forbid, state.opp)
+
+
+class NDInfoFixed(NDInfo):
+    """No Diggity information-gain pairing with standard deviations fixed at 1."""
+    name = "nd-info-fixed"
+    sigma_sd = 0.0
+
+
 def _info_variant(lam):
     tag = f"info-bt-{int(round(lam * 100)):02d}"
     return type(tag.replace("-", "_"), (InfoBT,), {"lam": lam, "name": tag,
@@ -649,7 +763,8 @@ INFO_VARIANTS = [_info_variant(x) for x in (0.0, 0.25, 0.5, 0.75)]
 
 PAIRERS = {c.name: c for c in [RandomPairer, RandomNoReplay, RoundRobin, Swiss, Monrad,
                                AcceleratedSwiss, EloMatch, RankBT, RankPU, *INFO_VARIANTS,
-                               *ERANK_VARIANTS, OracleNear, OracleERank]}
+                               *ERANK_VARIANTS, OracleNear, OracleERank, NDInfo,
+                               NDInfoFixed]}
 
 
 def make_pairer(name: str) -> Pairer:

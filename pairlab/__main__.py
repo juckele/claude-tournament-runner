@@ -57,6 +57,8 @@ def main():
     st.add_argument("--report-only", action="store_true")
     st.add_argument("--pairers", nargs="+", default=None,
                     help="only simulate these pairers (default: all)")
+    st.add_argument("--rankers", nargs="+", default=None,
+                    help="only apply these rankers (default: all)")
     st.add_argument("--append", action="store_true",
                     help="merge the new pairers' rows into the existing trials file")
 
@@ -77,7 +79,7 @@ def main():
         names = list(studies.STUDIES) if a.name == "all" else [a.name]
         for nm in names:
             studies.run_study(nm, trials=a.trials, procs=a.procs, report_only=a.report_only,
-                              pairers=a.pairers, append=a.append)
+                              pairers=a.pairers, append=a.append, rankers=a.rankers)
 
 
 if __name__ == "__main__":
