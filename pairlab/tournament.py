@@ -85,6 +85,8 @@ def simulate(table: OutcomeTable, field: np.ndarray, schedule: list[np.ndarray],
     pb = table.p_black[np.ix_(field, field)]
     closeness = []
     st.games_per_batch = max(1.0, float(np.mean([np.mean(d) for d in schedule])))
+    # The truth, for oracle pairers only (every other system ignores it).
+    st.oracle = {"strength": table.strength(field), "pw": pw, "pd": pd, "pb": pb}
     pairer.start(st, rng)
     for b, demand in enumerate(schedule):
         st.batch = b

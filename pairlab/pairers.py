@@ -514,6 +514,9 @@ class ERankBT(InfoBT):
     lam = 0.0
     name = "erank-00"
 
+    def game_gain(self, state, gi, gj):
+        return ranking_error_gain(self.r, self.S, (gi, gj))
+
     def pair(self, state, active, forbid, rng):
         idx = np.array(sorted(active))
         k = len(idx)
@@ -524,7 +527,7 @@ class ERankBT(InfoBT):
         iu, ju = iu[ok], ju[ok]
         W = np.zeros((k, k))
         if len(iu):
-            gain = ranking_error_gain(self.r, self.S, (idx[iu], idx[ju]))
+            gain = self.game_gain(state, idx[iu], idx[ju])
             gain = gain / max(gain.max(), 1e-300)
             d = self.r[idx[iu]] - self.r[idx[ju]]
             close = 1.0 - np.abs(2.0 / (1.0 + np.exp(-d)) - 1.0)
@@ -564,6 +567,78 @@ def _erank_variant(lam):
 ERANK_VARIANTS = [_erank_variant(x) for x in (0.0, 0.5)]
 
 
+def oracle_error_gain(r, S, games, true_strength, p_win, p_draw, prune=1e-6):
+    """Like ranking_error_gain, but the oracle knows the truth.
+
+    Loss = sum over pairs of the posterior probability that the pair is in the
+    wrong order *relative to the true order*: Phi(-s_kl m_kl / sqrt(v_kl)),
+    s_kl = sign of the true strength gap. For a game (i, j) each outcome
+    y in {1, 0.5, 0} (i's score) has its TRUE probability (colour-averaged),
+    and moves the posterior by one Newton step: dr = (y - p) S e / (1 + c v_ij),
+    with p the model's win chance and c = p(1-p); the gap variances shrink as
+    in ranking_error_gain. Gain = loss now - expected loss after.
+    games: (gi, gj); p_win[i, j], p_draw[i, j]: true colour-averaged chances.
+    """
+    from scipy.special import ndtr
+    gi, gj = np.asarray(games[0]), np.asarray(games[1])
+    n = len(r)
+    k, l = np.triu_indices(n, 1)
+    sgn = np.sign(true_strength[k] - true_strength[l])
+    m = r[k] - r[l]
+    dg = np.diag(S)
+    v = np.maximum(dg[k] + dg[l] - 2 * S[k, l], 1e-12)
+    cur = ndtr(-sgn * m / np.sqrt(v))
+    keep = (cur > prune) & (sgn != 0)
+    k, l, m, v, cur, sgn = k[keep], l[keep], m[keep], v[keep], cur[keep], sgn[keep]
+    if len(k) == 0 or len(gi) == 0:
+        return np.zeros(len(gi))
+    pm = 1.0 / (1.0 + np.exp(-(r[gi] - r[gj])))
+    c = pm * (1 - pm)
+    G = np.arange(len(gi))
+    U = S[:, gi] - S[:, gj]
+    vg = U[gi, G] - U[gj, G]
+    A = U[k, :] - U[l, :]                                    # pairs x G
+    denom = 1 + c * vg
+    v_new = np.maximum(v[:, None] - c[None, :] * A ** 2 / denom[None, :], 1e-12)
+    inv = 1.0 / np.sqrt(v_new)
+    pw = p_win[gi, gj]
+    pd = p_draw[gi, gj]
+    after = np.zeros_like(v_new)
+    for y, prob in ((1.0, pw), (0.5, pd), (0.0, 1 - pw - pd)):
+        dm = A * ((y - pm) / denom)[None, :]
+        after += prob[None, :] * ndtr(-sgn[:, None] * (m[:, None] + dm) * inv)
+    return (cur[:, None] - after).sum(axis=0)
+
+
+class OracleERank(ERankBT):
+    """Oracle (knows the truth; not a real system): pairs to move the
+    Bradley-Terry fit toward the TRUE order as fast as possible. Same machinery
+    as erank, but a game's value is the expected drop in posterior probability
+    of misordering pairs relative to the true order, with outcomes drawn from
+    the true probabilities (oracle_error_gain). Bounds what targeted pairing
+    can do for ranking quality."""
+    lam = 0.0
+    name = "oracle-erank"
+
+    def game_gain(self, state, gi, gj):
+        o = state.oracle
+        pw = 0.5 * (o["pw"] + o["pb"].T)  # i beats j, averaged over colours
+        pd = 0.5 * (o["pd"] + o["pd"].T)
+        return np.maximum(oracle_error_gain(self.r, self.S, (gi, gj), o["strength"], pw, pd), 0.0)
+
+
+class OracleNear(RankPairer):
+    """Oracle (knows the truth; not a real system): pairs true-strength
+    neighbours (1v2, 3v4 in the true order), no rematches. The closest games
+    any pairing could schedule."""
+    name = "oracle-near"
+
+    def _update(self, state):
+        order = np.lexsort((state.seed_rank, -state.oracle["strength"]))
+        self.pos = np.empty(state.n, dtype=int)
+        self.pos[order] = np.arange(state.n)
+
+
 def _info_variant(lam):
     tag = f"info-bt-{int(round(lam * 100)):02d}"
     return type(tag.replace("-", "_"), (InfoBT,), {"lam": lam, "name": tag,
@@ -574,7 +649,7 @@ INFO_VARIANTS = [_info_variant(x) for x in (0.0, 0.25, 0.5, 0.75)]
 
 PAIRERS = {c.name: c for c in [RandomPairer, RandomNoReplay, RoundRobin, Swiss, Monrad,
                                AcceleratedSwiss, EloMatch, RankBT, RankPU, *INFO_VARIANTS,
-                               *ERANK_VARIANTS]}
+                               *ERANK_VARIANTS, OracleNear, OracleERank]}
 
 
 def make_pairer(name: str) -> Pairer:
