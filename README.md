@@ -74,10 +74,15 @@ Pairers (`pairlab/pairers.py`):
 | `monrad` | Monrad / Danish: order by score then seed, pair neighbours (1v2, 3v4) |
 | `accel-swiss` | Swiss with Baku acceleration (virtual points for the top half of seeds early on); only meaningful with informative seeds |
 | `elo-match` | online-ladder matchmaking: live Elo (K=40), pair each player with the closest-rated unplayed opponent |
+| `rank-bt` | rank pairing: at each batch, rank everyone by a Bradley-Terry fit of all results so far (seed order before any games), pair neighbours (1v2, 3v4), no rematches, bye to the lowest-ranked |
+| `rank-pu` | the same, ranking by Pong-Uckele |
 
 Rankers (`pairlab/rankers.py`): `score` (points), `swiss-tb` (points, Buchholz,
 Sonneborn-Berger), `pct` (points per game played), `bt` (ridge-regularised
-Bradley-Terry fit), `elo` (sequential Elo).
+Bradley-Terry fit), `elo` (sequential Elo), `pu` (Pong-Uckele: points flow from a
+source to every player, from each player to a sink and to everyone who beat them,
+iterated to a fixed point; the same flow on the reversed results is subtracted so
+a player with no games nets zero; draws count half each way).
 
 Seeding: `--seeding random` (default — pairers know nothing about players before
 the event), `perfect`, or `noisy:SD` (true-strength z-score plus N(0, SD) noise).
@@ -92,9 +97,9 @@ in `RANKERS`. `State` holds scores, games, opponents met, colours, byes and seed
 
 ## Results so far
 
-See [`RESULTS.md`](RESULTS.md): no baseline system significantly beats the best
-Swiss in any of 162 conditions; the first weak win is Elo matchmaking in weekly
-batches.
+See [`RESULTS.md`](RESULTS.md): nothing yet beats the best Swiss on both axes with
+significance; rank pairing on a live Bradley-Terry fit (`rank-bt/bt`) gives closer
+games at equal ranking quality in 58 of 162 conditions.
 
 ## Outcome tables
 

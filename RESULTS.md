@@ -1,4 +1,4 @@
-# Baseline results (2026-10-18)
+# Results (2026-10-18)
 
 The first pass: the existing systems only, to establish what "beating Swiss" has
 to beat. 7 pairers × 5 rankers = 35 systems, 6 outcome tables, 300–400 paired trials
@@ -12,7 +12,45 @@ pairing with whichever ranker ranks best there): per axis a system is better or
 worse when |z| ≥ 3, otherwise tied. *Dominates* = better on both axes, *weakly
 dominates* = better on one axis and tied on the other.
 
-## Headlines
+## Round 2: rank pairing and Pong-Uckele (added 2026-10-18)
+
+New systems: `rank-bt` and `rank-pu` pairers (pair neighbours in a live
+Bradley-Terry or Pong-Uckele ranking instead of by points) and the Pong-Uckele
+ranker (`pu`). All four studies were rerun with 9 pairers × 6 rankers = 54
+systems on the same fields and seeds as the baseline.
+
+1. **`rank-bt/bt` is the best candidate so far.** Against the best Swiss variant
+   it weakly dominates (better on one axis, tied on the other) in 58 of 162
+   conditions. With random seeds it is never significantly worse on either axis,
+   except in one 12-player cell (τ −0.03); with informative seeds it becomes a
+   trade-off (point 4). The gain is closer games (+0.003 to +0.005 closeness on
+   average per study, up to +0.014) at equal ranking quality. It grows with more
+   rounds (0 of 6 tables at 3–5 rounds, 5 of 6 at 11 rounds), with field size
+   (none at N = 12–13, 1–4 of 6 tables at N = 15–33) and in weekly batches
+   (17 of 18 league conditions).
+2. **No strict dominance that survives the multiple-comparison check.** One
+   condition shows `rank-pu/bt` beating the best Swiss on both axes (normal-equal,
+   N = 32, 6 rounds; z 3.3 and 3.6). With 54 systems × 162 conditions, one hit
+   just past |z| = 3 is what chance alone would produce.
+3. **Pong-Uckele works better as a pairing signal than as a final ranking.** As a
+   ranker it trails Bradley-Terry in every study (mean τ 0.499 vs 0.519 in the
+   rounds study, 0.554 vs 0.581 in the league), trails standard Swiss tiebreaks in
+   classic rounds (0.499 vs 0.515) and lands close to points-per-game. In leagues
+   it beats points-based tiebreaks (0.554 vs 0.532), which break down when game
+   counts differ. As a pairer (`rank-pu`, ranked by
+   Bradley-Terry) it weakly beats the best Swiss in 25 conditions.
+4. **With informative seeds, rank pairing becomes a trade-off** like Monrad: round 1
+   pairs seed neighbours, so games are much closer (+0.03 noisy seeds, +0.07
+   perfect seeds, up to +0.10) but τ drops (−0.08 and −0.12, down to −0.15), since
+   rankers don't use the seeds.
+
+Why rank pairing helps: points are a coarse signal (everyone on 3/5 looks alike),
+so Swiss pairs within broad score groups; a fitted rating separates players
+inside a score group by who they beat, so neighbours are genuinely closer. The
+edge needs enough games for the fit to beat the score groups, hence more rounds
+and leagues.
+
+## Baseline headlines
 
 1. **Nothing in the baseline set strictly dominates Swiss anywhere.** Across all
    162 cells, no system beats the best Swiss on both axes with significance. Where
