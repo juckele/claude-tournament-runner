@@ -98,10 +98,69 @@ def rank_elo(state, rng):
     return _lex([r], rng)
 
 
+def result_matrix(state):
+    """beats[i, j] = how many times i beat j, a draw counting half each way."""
+    n = state.n
+    beats = np.zeros((n, n))
+    for w, b, r, _ in state.games:
+        beats[w, b] += r
+        beats[b, w] += 1.0 - r
+    return beats
+
+
+def pu_flow(beats, source=1.0, sink_weight=1.0, tol=1e-12, max_iter=100_000):
+    """One direction of Pong-Uckele: a flow of points over the result graph.
+
+    Every player receives `source` points from the source node each step and
+    splits everything it holds among its out-edges: one edge of weight
+    `sink_weight` to the sink, plus one edge per game to each player who beat
+    it (weighted by how many times, draws counting half). Iterate
+
+        x_i <- source + sum_j beats[i, j] * x_j / (sink_weight + losses_j)
+
+    until it stops changing. Because every player leaks a share to the sink the
+    map is a contraction and the fixed point is unique: the solution of
+    (I - M) x = source, M[i, j] = beats[i, j] / (sink_weight + losses_j).
+    Returns (x, iterations).
+    """
+    losses = beats.sum(axis=0)  # column j: everything j lost (to anyone)
+    M = beats / (sink_weight + losses)[None, :]
+    x = np.full(len(beats), source, dtype=float)
+    for it in range(1, max_iter + 1):
+        nxt = source + M @ x
+        if np.abs(nxt - x).max() < tol * max(1.0, np.abs(nxt).max()):
+            return nxt, it
+        x = nxt
+    raise RuntimeError("Pong-Uckele flow did not converge")
+
+
+def pong_uckele(state, source=1.0, sink_weight=1.0, parts=False):
+    """Pong-Uckele rating: the win flow (points flow from losers to the players
+    who beat them) minus the loss flow (the same graph with every result
+    reversed, so points flow to the players who lost). A player with no games
+    gets `source` from both and nets 0. Byes are ignored."""
+    beats = result_matrix(state)
+    win, _ = pu_flow(beats, source, sink_weight)
+    loss, _ = pu_flow(beats.T, source, sink_weight)
+    return (win - loss, win, loss) if parts else win - loss
+
+
+def rank_pu(state, rng):
+    """Pong-Uckele rating (win flow minus loss flow); ties by lot."""
+    return _lex([pong_uckele(state)], rng)
+
+
 RANKERS = {
     "score": rank_score,
     "swiss-tb": rank_swiss_tb,
     "pct": rank_pct,
     "bt": rank_bt,
     "elo": rank_elo,
+    "pu": rank_pu,
+}
+
+# Rating functions (higher = better) for pairers that pair on a live ranking.
+RATINGS = {
+    "bt": bradley_terry,
+    "pu": pong_uckele,
 }

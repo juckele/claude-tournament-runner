@@ -288,8 +288,56 @@ class EloMatch(Pairer):
         return (self.r[p] - self.r[q]) ** 2
 
 
+class RankPairer(Pairer):
+    """Pair on a live ranking instead of points. At the start of each batch,
+    rank everyone by a rating fitted to all results so far (`rating`, a key of
+    rankers.RATINGS; ties and the first batch fall back to seed order), then
+    pair players next to each other in that ranking (1v2, 3v4, ...), taking
+    the nearest-ranked opponent not yet met. The lowest-ranked eligible player
+    gets the bye."""
+    rating = "bt"
+    name = "rank-bt"
+
+    def start(self, state, rng):
+        self._update(state)
+
+    def end_batch(self, state, rng):
+        self._update(state)
+
+    def _update(self, state):
+        from .rankers import RATINGS
+        r = RATINGS[self.rating](state)
+        order = np.lexsort((state.seed_rank, -r))  # best first
+        self.pos = np.empty(state.n, dtype=int)
+        self.pos[order] = np.arange(state.n)
+
+    def order(self, state, active, rng):
+        return sorted(active, key=lambda i: self.pos[i])
+
+    def candidates(self, state, p, rest, rng):
+        return sorted(rest, key=lambda q: (abs(self.pos[p] - self.pos[q]), self.pos[q]))
+
+    def bye_order(self, state, cands, rng):
+        return sorted(cands, key=lambda i: -self.pos[i])
+
+    def cost(self, state, p, q):
+        return float((self.pos[p] - self.pos[q]) ** 2)
+
+
+class RankBT(RankPairer):
+    """Rank pairing on a live Bradley-Terry fit."""
+    rating = "bt"
+    name = "rank-bt"
+
+
+class RankPU(RankPairer):
+    """Rank pairing on live Pong-Uckele ratings."""
+    rating = "pu"
+    name = "rank-pu"
+
+
 PAIRERS = {c.name: c for c in [RandomPairer, RandomNoReplay, RoundRobin, Swiss, Monrad,
-                               AcceleratedSwiss, EloMatch]}
+                               AcceleratedSwiss, EloMatch, RankBT, RankPU]}
 
 
 def make_pairer(name: str) -> Pairer:
