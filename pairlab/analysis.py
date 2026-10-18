@@ -51,6 +51,15 @@ PAIRER_COLOR = {
     "random-noreplay": "#eb6834",  # orange
     "round-robin": "#6250d6",      # violet
 }
+# The info-bt family (information-seeking pairing, one variant per lambda)
+# shares near-black ink and is told apart by a direct "λ" label on its stem
+# (Pareto plots) or by dash pattern (sweeps), not by more hues.
+INFO_LAMS = {"info-bt-00": 0.0, "info-bt-25": 0.25, "info-bt-50": 0.5, "info-bt-75": 0.75}
+for _p in INFO_LAMS:
+    PAIRER_COLOR[_p] = "#0b0b0b"
+    PAIRER_ORDER.append(_p)
+INFO_DASH = {"info-bt-00": (0, (1, 1.5)), "info-bt-25": (0, (3, 2)), "info-bt-50": (0, (6, 2)),
+             "info-bt-75": "solid"}
 RANKER_ORDER = ["swiss-tb", "score", "pct", "elo", "bt", "pu"]
 RANKER_MARKER = {"swiss-tb": "o", "score": "s", "pct": "^", "elo": "v", "bt": "D", "pu": "P"}
 RANKER_LABEL = {"swiss-tb": "points + Buchholz + SB", "score": "points", "pct": "points per game",
@@ -164,7 +173,10 @@ def _pareto_key(fig, pairers, rankers):
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
     ph = [Line2D([0], [0], color=PAIRER_COLOR[p], lw=2, marker="o", ms=6, mec=SURFACE, label=p)
-          for p in pairers]
+          for p in pairers if p not in INFO_LAMS]
+    if any(p in INFO_LAMS for p in pairers):
+        ph.append(Line2D([0], [0], color=PAIRER_COLOR["info-bt-50"], lw=2, marker="o", ms=6,
+                         mec=SURFACE, label="info-bt (all λ, BT)"))
     rh = [Line2D([0], [0], color="none", marker=RANKER_MARKER[r], ms=7, mfc=INK2, mec=SURFACE,
                  label=RANKER_LABEL[r]) for r in rankers]
     mh = [Line2D([0], [0], color="none", marker="o", ms=14, mfc="none", mec=INK, mew=1.6,
@@ -177,7 +189,7 @@ def _pareto_key(fig, pairers, rankers):
     l1 = fig.legend(handles=ph, title="Pairer (colour)", loc="lower left", ncol=5,
                     bbox_to_anchor=(0.01, 0.0), **kw)
     l2 = fig.legend(handles=rh, title="Ranker (shape)", loc="lower center", ncol=3,
-                    bbox_to_anchor=(0.6, 0.0), **kw)
+                    bbox_to_anchor=(0.62, 0.0), **kw)
     l3 = fig.legend(handles=mh, title="Marks", loc="lower right", ncol=1,
                     bbox_to_anchor=(0.995, 0.0), **kw)
     for lg in (l1, l2, l3):
@@ -216,8 +228,13 @@ def plot_pareto(summary, verdicts, cells, path, title=None, ncols=3):
             d = s[s.pairer == p]
             pairers_seen.add(p)
             col = PAIRER_COLOR[p]
-            ax.plot([d.mq.mean()] * 2, [d.tau.min(), d.tau.max()], color=col, lw=1.2, alpha=0.55,
-                    zorder=1, solid_capstyle="round")
+            if p in INFO_LAMS:
+                # The info-bt family is near-identical across lambda; one point each
+                # (Bradley-Terry ranker), no stem, to keep the panel readable.
+                d = d[d.ranker == "bt"]
+            else:
+                ax.plot([d.mq.mean()] * 2, [d.tau.min(), d.tau.max()], color=col, lw=1.2,
+                        alpha=0.55, zorder=1, solid_capstyle="round")
             for _, r in d.iterrows():
                 rankers_seen.add(r.ranker)
                 ax.errorbar(r.mq, r.tau, yerr=r.tau_se, fmt="none", ecolor=col, alpha=0.35,
@@ -274,8 +291,9 @@ def plot_sweep(summary, x, tables, path, ranker="bt", fixed=None, xlabel=None, t
                 dp = d[d.pairer == p].sort_values(x)
                 if dp.empty:
                     continue
-                ax.plot(dp[x], dp[metric], "-o", color=PAIRER_COLOR[p], lw=2 if p == "swiss" else 1.4,
-                        ms=4, label=p, zorder=3 if p == "swiss" else 2)
+                ax.plot(dp[x], dp[metric], marker="o", color=PAIRER_COLOR[p],
+                        ls=INFO_DASH.get(p, "solid"), lw=2 if p == "swiss" else 1.4,
+                        ms=3 if p in INFO_LAMS else 4, label=p, zorder=3 if p == "swiss" else 2)
             if i == 0:
                 ax.set_title(tbl, fontsize=9, color=INK, loc="left")
             if j == 0:
@@ -283,11 +301,11 @@ def plot_sweep(summary, x, tables, path, ranker="bt", fixed=None, xlabel=None, t
             if i == 1:
                 ax.set_xlabel(xlabel or x, fontsize=8, color=INK2)
     h, lbl = axes[0, 0].get_legend_handles_labels()
-    fig.legend(h, lbl, loc="lower center", ncol=len(lbl), fontsize=8, frameon=False,
+    fig.legend(h, lbl, loc="lower center", ncol=min(len(lbl), 7), fontsize=8, frameon=False,
                labelcolor=INK2)
     if title:
         fig.suptitle(title, fontsize=11, color=INK, x=0.01, ha="left")
-    fig.tight_layout(rect=(0, 0.05, 1, 0.97 if title else 1))
+    fig.tight_layout(rect=(0, 0.09, 1, 0.97 if title else 1))
     fig.savefig(path, dpi=130, facecolor=SURFACE)
     plt.close(fig)
 

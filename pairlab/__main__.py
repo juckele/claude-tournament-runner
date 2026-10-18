@@ -55,6 +55,10 @@ def main():
     st.add_argument("--trials", type=int, default=None, help="override the preset's trials")
     st.add_argument("--procs", type=int, default=None)
     st.add_argument("--report-only", action="store_true")
+    st.add_argument("--pairers", nargs="+", default=None,
+                    help="only simulate these pairers (default: all)")
+    st.add_argument("--append", action="store_true",
+                    help="merge the new pairers' rows into the existing trials file")
 
     a = ap.parse_args()
     if a.cmd == "run":
@@ -72,7 +76,8 @@ def main():
     else:
         names = list(studies.STUDIES) if a.name == "all" else [a.name]
         for nm in names:
-            studies.run_study(nm, trials=a.trials, procs=a.procs, report_only=a.report_only)
+            studies.run_study(nm, trials=a.trials, procs=a.procs, report_only=a.report_only,
+                              pairers=a.pairers, append=a.append)
 
 
 if __name__ == "__main__":

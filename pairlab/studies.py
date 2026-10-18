@@ -55,17 +55,27 @@ def _md(df, floatfmt=3):
     return "\n".join(out)
 
 
-def run_study(name, trials=None, procs=None, report_only=False):
+def run_study(name, trials=None, procs=None, report_only=False, pairers=None, append=False):
+    """Run (or with report_only, just re-report) a preset study. With `pairers`
+    and append=True, only those pairers are simulated and their rows replace
+    or extend the existing trials file. Fields, schedules and per-system random
+    streams are derived from fixed seeds and names, so appended systems are
+    paired with the existing ones exactly as if run together."""
     cfg = STUDIES[name]
     outdir = os.path.join(ROOT, "results", name)
     os.makedirs(outdir, exist_ok=True)
     csv = os.path.join(outdir, "trials.csv.gz")
     if not report_only:
         t0 = time.time()
-        print(f"[{name}] running")
-        df = run_grid(TABLES, cfg["sizes"], cfg["schedules"], list(PAIRERS), list(RANKERS),
+        plist = list(pairers or PAIRERS)
+        print(f"[{name}] running {', '.join(plist)}")
+        df = run_grid(TABLES, cfg["sizes"], cfg["schedules"], plist, list(RANKERS),
                       trials or cfg["trials"], seed=1, seeding=cfg["seeding"],
                       bye_points=cfg["bye_points"], procs=procs)
+        if append and os.path.exists(csv):
+            old = pd.read_csv(csv)
+            old = old[~old.pairer.isin(plist)]
+            df = pd.concat([old, df], ignore_index=True)
         df.to_csv(csv, index=False)
         print(f"[{name}] {len(df)} rows in {time.time() - t0:.0f}s")
     df = pd.read_csv(csv)

@@ -46,33 +46,47 @@ def rank_pct(state, rng):
     return _lex([pct, state.played], rng)
 
 
-def bradley_terry(state, prior_sd=1.0, iters=50):
+def _bt_hessian(n, w, b, r, lam):
+    """Posterior precision of the log-strengths: the negative Hessian of the
+    log-posterior, sum over games of p(1-p) (e_w - e_b)(e_w - e_b)^T + lam I."""
+    H = np.zeros((n, n))
+    if len(w):
+        p = 1.0 / (1.0 + np.exp(-(r[w] - r[b])))
+        v = p * (1 - p)
+        np.add.at(H, (w, w), v)
+        np.add.at(H, (b, b), v)
+        np.add.at(H, (w, b), -v)
+        np.add.at(H, (b, w), -v)
+    H[np.diag_indices(n)] += lam
+    return H
+
+
+def bradley_terry(state, prior_sd=1.0, iters=50, return_hessian=False):
     """Ridge-regularised Bradley-Terry fit (draws count as half a win each
-    way). Byes carry no information and are ignored. Returns log-strengths."""
+    way). Byes carry no information and are ignored. Returns log-strengths,
+    and with return_hessian=True also the posterior precision matrix (its
+    inverse is the Laplace-approximation covariance of the strengths)."""
     n = state.n
+    lam = 1.0 / prior_sd ** 2
     if not state.games:
-        return np.zeros(n)
+        r = np.zeros(n)
+        return (r, lam * np.eye(n)) if return_hessian else r
     g = np.array(state.games)
     w = g[:, 0].astype(int)
     b = g[:, 1].astype(int)
     s = g[:, 2]
-    lam = 1.0 / prior_sd ** 2
     r = np.zeros(n)
     for _ in range(iters):
         p = 1.0 / (1.0 + np.exp(-(r[w] - r[b])))
         resid = s - p
         grad = np.bincount(w, resid, n) - np.bincount(b, resid, n) - lam * r
-        v = p * (1 - p)
-        H = np.zeros((n, n))
-        np.add.at(H, (w, w), v)
-        np.add.at(H, (b, b), v)
-        np.add.at(H, (w, b), -v)
-        np.add.at(H, (b, w), -v)
-        H[np.diag_indices(n)] += lam
+        H = _bt_hessian(n, w, b, r, lam)
         step = np.linalg.solve(H, grad)
         r += step
         if np.abs(step).max() < 1e-8:
             break
+    if return_hessian:
+        return r, _bt_hessian(n, w, b, r, lam)
     return r
 
 

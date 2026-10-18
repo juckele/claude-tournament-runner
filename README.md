@@ -26,7 +26,8 @@ every ranker, and each combination is a system (`pairer/ranker`).
 pip install -r requirements.txt
 python3 -m pytest -q                      # pairing invariants
 python3 -m pairlab study rounds           # preset study -> results/rounds/README.md
-python3 -m pairlab study all              # rounds, sizes, league, seeding (~45 min on 2 cores)
+python3 -m pairlab study all              # rounds, sizes, league, seeding (a few hours on 2 cores)
+python3 -m pairlab study rounds --pairers info-bt-50 --append   # add one pairer to a study
 
 # ad-hoc grid
 python3 -m pairlab run --tables data/dice-pools.tsv data/normal-equal.tsv \
@@ -76,6 +77,7 @@ Pairers (`pairlab/pairers.py`):
 | `elo-match` | online-ladder matchmaking: live Elo (K=40), pair each player with the closest-rated unplayed opponent |
 | `rank-bt` | rank pairing: at each batch, rank everyone by a Bradley-Terry fit of all results so far (seed order before any games), pair neighbours (1v2, 3v4), no rematches, bye to the lowest-ranked |
 | `rank-pu` | the same, ranking by Pong-Uckele |
+| `info-bt-00/25/50/75` | pair for information: Bradley-Terry posterior; pair weight = λ·closeness + (1−λ)·(expected information on the gap × order uncertainty), greedy matching, planned games folded into the posterior within a batch; λ = 0, 0.25, 0.5, 0.75 |
 
 Rankers (`pairlab/rankers.py`): `score` (points), `swiss-tb` (points, Buchholz,
 Sonneborn-Berger), `pct` (points per game played), `bt` (ridge-regularised

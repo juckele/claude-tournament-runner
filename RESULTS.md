@@ -12,6 +12,34 @@ pairing with whichever ranker ranks best there): per axis a system is better or
 worse when |z| ≥ 3, otherwise tied. *Dominates* = better on both axes, *weakly
 dominates* = better on one axis and tied on the other.
 
+## Round 3: pairing for information (`info-bt`, added 2026-10-18)
+
+`info-bt` fits Bradley-Terry with its uncertainty (Laplace posterior) before each
+round and weights each candidate game by λ·closeness + (1−λ)·information, where
+information = expected information about the pair's strength gap × how unsure
+their order is. Inside a weekly batch each planned game tightens the posterior
+before the next is chosen. Run on the rounds and league studies at λ = 0, 0.25,
+0.5, 0.75 (appended to the existing trials; same fields and seeds).
+
+1. **The λ dial does nothing.** Over the allowed pairs, the information score
+   correlates 0.98–1.00 with model closeness, and λ = 0 and λ = 0.75 choose 12–16
+   of the same 16 games. When everyone has played the same number of games, the
+   uncertainty about each gap is nearly the same for every pair, so what's left
+   of "information" (p(1−p) and order uncertainty) depends only on the rating gap,
+   just like closeness. Pairing for information collapses to pairing for closeness.
+2. **It doesn't beat the simpler rank pairer.** Ranking quality ties Swiss (mean
+   Δτ −0.000 to +0.001 in the rounds study), but match quality is slightly lower
+   (−0.002 on average, −0.004 for 9 rounds in the league study); it is weakly
+   dominated by the best Swiss in 10–14 of 48 rounds conditions. In weekly
+   batches it weakly beats the best Swiss in 7–8 of 18 conditions, against 17 of
+   18 for `rank-bt/bt`. The likely cost is the greedy matcher: taking the closest
+   pairs first strands awkward leftovers, where `rank-bt` pairs neighbours in order.
+3. **What would make information different from closeness:** dropping the
+   order-uncertainty factor (pure gap information favours poorly connected pairs),
+   or scoring a game by its expected reduction in *total* ranking error across all
+   pairs, so a game counts for what it reveals about third parties. Neither is
+   implemented yet.
+
 ## Round 2: rank pairing and Pong-Uckele (added 2026-10-18)
 
 New systems: `rank-bt` and `rank-pu` pairers (pair neighbours in a live

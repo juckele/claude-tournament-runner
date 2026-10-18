@@ -336,8 +336,101 @@ class RankPU(RankPairer):
     name = "rank-pu"
 
 
+class InfoBT(Pairer):
+    """Pair for information, blended with closeness.
+
+    At the start of each batch, fit Bradley-Terry to all results so far and
+    take the Laplace posterior: strengths r and precision H (covariance
+    S = H^-1). For a candidate game i v j, with model win chance p and gap
+    variance v = S_ii + S_jj - 2 S_ij:
+
+      closeness  = 1 - |2p - 1|                         (model's, not the truth)
+      info       = 0.5 log(1 + p(1-p) v)                expected information on the gap
+               * 2 Phi(-|r_i - r_j| / sqrt(v))         how unsure their order is
+
+    info is rescaled to [0, 1] over the allowed pairs, and the pair weight is
+    lam * closeness + (1 - lam) * info. Pairs are chosen greedily by weight
+    (no rematches; min-cost matching if greedy strands anyone). A game shrinks
+    uncertainty by the same amount whatever its result, so inside a batch
+    each chosen game is folded into H (H += p(1-p) e e^T) before the next
+    sub-round is planned. lam = 1 is closeness-only rank pairing; lam = 0 is
+    pure information seeking. Byes go to the lowest-rated eligible player.
+    Seeds are not used except to break exact ties."""
+    lam = 0.5
+    name = "info-bt-50"
+
+    def start(self, state, rng):
+        self._fit(state)
+
+    def end_batch(self, state, rng):
+        self._fit(state)
+
+    def _fit(self, state):
+        from .rankers import bradley_terry
+        self.r, self.H = bradley_terry(state, return_hessian=True)
+        self.S = np.linalg.inv(self.H)
+
+    def _weights(self, idx):
+        r = self.r[idx]
+        S = self.S[np.ix_(idx, idx)]
+        d = r[:, None] - r[None, :]
+        p = 1.0 / (1.0 + np.exp(-d))
+        close = 1.0 - np.abs(2 * p - 1)
+        dg = np.diag(S)
+        v = np.maximum(dg[:, None] + dg[None, :] - 2 * S, 1e-12)
+        from scipy.special import ndtr
+        info = 0.5 * np.log1p(p * (1 - p) * v) * 2 * ndtr(-np.abs(d) / np.sqrt(v))
+        return close, info, p
+
+    def bye_order(self, state, cands, rng):
+        return sorted(cands, key=lambda i: (self.r[i], -state.seed_rank[i]))
+
+    def pair(self, state, active, forbid, rng):
+        idx = np.array(sorted(active))
+        k = len(idx)
+        close, info, p = self._weights(idx)
+        allowed = ~forbid[np.ix_(idx, idx)] & (state.opp[np.ix_(idx, idx)] == 0)
+        np.fill_diagonal(allowed, False)
+        if allowed.any():
+            info = info / max(info[allowed].max(), 1e-300)
+        w = self.lam * close + (1 - self.lam) * info
+        w = w + 1e-9 * rng.random((k, k))  # random tie-break (e.g. before any games)
+        iu, ju = np.triu_indices(k, 1)
+        ok = allowed[iu, ju]
+        iu, ju, ww = iu[ok], ju[ok], w[iu[ok], ju[ok]]
+        used = np.zeros(k, dtype=bool)
+        pairs = []
+        for e in np.argsort(-ww, kind="stable"):
+            a, b = iu[e], ju[e]
+            if not used[a] and not used[b]:
+                used[a] = used[b] = True
+                pairs.append((int(idx[a]), int(idx[b])))
+        if not used.all():
+            pos = {int(x): t for t, x in enumerate(idx)}
+            pairs = min_cost_match([int(x) for x in idx],
+                                   lambda a, b: 1.0 - w[pos[a], pos[b]], forbid, state.opp)
+        # Fold the planned games into the posterior precision.
+        for a, b in pairs:
+            q = 1.0 / (1.0 + np.exp(-(self.r[a] - self.r[b])))
+            v = q * (1 - q)
+            self.H[a, a] += v
+            self.H[b, b] += v
+            self.H[a, b] -= v
+            self.H[b, a] -= v
+        self.S = np.linalg.inv(self.H)
+        return pairs
+
+
+def _info_variant(lam):
+    tag = f"info-bt-{int(round(lam * 100)):02d}"
+    return type(tag.replace("-", "_"), (InfoBT,), {"lam": lam, "name": tag,
+                                                   "__doc__": f"InfoBT with lam = {lam}."})
+
+
+INFO_VARIANTS = [_info_variant(x) for x in (0.0, 0.25, 0.5, 0.75)]
+
 PAIRERS = {c.name: c for c in [RandomPairer, RandomNoReplay, RoundRobin, Swiss, Monrad,
-                               AcceleratedSwiss, EloMatch, RankBT, RankPU]}
+                               AcceleratedSwiss, EloMatch, RankBT, RankPU, *INFO_VARIANTS]}
 
 
 def make_pairer(name: str) -> Pairer:
