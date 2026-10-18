@@ -421,6 +421,149 @@ class InfoBT(Pairer):
         return pairs
 
 
+_GH_X, _GH_W = np.polynomial.hermite.hermgauss(8)
+
+
+def ranking_error_gain(r, S, games, prune=1e-4):
+    """Expected reduction in total ranking error from playing each game.
+
+    Total ranking error = expected number of misordered pairs under the
+    Bradley-Terry Laplace posterior (means r, covariance S):
+        E = sum_{k<l} Phi(-|r_k - r_l| / sqrt(v_kl)),  v_kl = S_kk + S_ll - 2 S_kl.
+
+    Playing game (i, j) with model win chance p adds Fisher information
+    c = p(1-p) along e = e_i - e_j. In the Gaussian approximation the
+    posterior covariance becomes S' = S - c (S e)(S e)^T / (1 + c e^T S e)
+    whatever the result, and every pair's posterior mean gap moves by a
+    zero-mean shift whose variance is exactly what its variance loses:
+        tau2_kl = c (u_k - u_l)^2 / (1 + c v_ij),   u = S e,
+        v'_kl  = v_kl - tau2_kl.
+    So the expected misorder of pair (k, l) after the game is
+        E_delta[ Phi(-|m_kl + delta| / sqrt(v'_kl)) ],  delta ~ N(0, tau2_kl),
+    evaluated with 8-point Gauss-Hermite quadrature. The gain of a game is
+    the drop in E summed over all pairs, including pairs that don't involve
+    i or j (third parties move because the fit is joint). Pairs whose order
+    is already near-certain (current misorder < prune) are skipped.
+
+    games: (gi, gj) index arrays. Returns gains (one per game), >= 0.
+    """
+    from scipy.special import ndtr
+    gi, gj = np.asarray(games[0]), np.asarray(games[1])
+    n = len(r)
+    k, l = np.triu_indices(n, 1)
+    m = r[k] - r[l]
+    dg = np.diag(S)
+    v = np.maximum(dg[k] + dg[l] - 2 * S[k, l], 1e-12)
+    cur = ndtr(-np.abs(m) / np.sqrt(v))
+    keep = cur > prune
+    k, l, m, v, cur = k[keep], l[keep], m[keep], v[keep], cur[keep]
+    if len(k) == 0 or len(gi) == 0:
+        return np.zeros(len(gi))
+    p = 1.0 / (1.0 + np.exp(-(r[gi] - r[gj])))
+    c = p * (1 - p)
+    U = S[:, gi] - S[:, gj]                          # n x G: S e for each game
+    vg = U[gi, np.arange(len(gi))] - U[gj, np.arange(len(gi))]
+    A = U[k, :] - U[l, :]                            # pairs x G
+    tau2 = c[None, :] * A ** 2 / (1 + c * vg)[None, :]
+    tau2 = np.minimum(tau2, v[:, None] * (1 - 1e-9))
+    v_new = v[:, None] - tau2
+    after = np.zeros_like(tau2)
+    sd = np.sqrt(2 * tau2)
+    inv = 1.0 / np.sqrt(v_new)
+    for x, w in zip(_GH_X, _GH_W):
+        after += w * ndtr(-np.abs(m[:, None] + sd * x) * inv)
+    after /= np.sqrt(np.pi)
+    return np.maximum((cur[:, None] - after).sum(axis=0), 0.0)
+
+
+def improve_matching(pairs, weight, ok, passes=3):
+    """2-opt: for any two pairs (a,b),(c,d), switch to (a,c),(b,d) or
+    (a,d),(b,c) if both new pairs are allowed and the total weight rises."""
+    pairs = [tuple(x) for x in pairs]
+    for _ in range(passes):
+        changed = False
+        for x in range(len(pairs)):
+            for y in range(x + 1, len(pairs)):
+                a, b = pairs[x]
+                c, d = pairs[y]
+                base = weight(a, b) + weight(c, d)
+                best, alt = base, None
+                for p1, p2 in (((a, c), (b, d)), ((a, d), (b, c))):
+                    if ok(*p1) and ok(*p2):
+                        t = weight(*p1) + weight(*p2)
+                        if t > best + 1e-12:
+                            best, alt = t, (p1, p2)
+                if alt:
+                    pairs[x], pairs[y] = alt
+                    changed = True
+        if not changed:
+            break
+    return pairs
+
+
+class ERankBT(InfoBT):
+    """Pair to reduce total ranking error.
+
+    Like info-bt it keeps a Bradley-Terry Laplace posterior (refitted each
+    batch, with planned games folded in within a batch), but each candidate
+    game is scored by ranking_error_gain(): the expected drop in the number of
+    misordered pairs across *all* players, not just the two who play. There is
+    no separate order-uncertainty factor. Weight = lam * closeness +
+    (1 - lam) * gain / max gain. Matching is greedy by weight, then improved
+    by 2-opt swaps; min-cost matching if greedy strands anyone."""
+    lam = 0.0
+    name = "erank-00"
+
+    def pair(self, state, active, forbid, rng):
+        idx = np.array(sorted(active))
+        k = len(idx)
+        allowed = ~forbid[np.ix_(idx, idx)] & (state.opp[np.ix_(idx, idx)] == 0)
+        np.fill_diagonal(allowed, False)
+        iu, ju = np.triu_indices(k, 1)
+        ok = allowed[iu, ju]
+        iu, ju = iu[ok], ju[ok]
+        W = np.zeros((k, k))
+        if len(iu):
+            gain = ranking_error_gain(self.r, self.S, (idx[iu], idx[ju]))
+            gain = gain / max(gain.max(), 1e-300)
+            d = self.r[idx[iu]] - self.r[idx[ju]]
+            close = 1.0 - np.abs(2.0 / (1.0 + np.exp(-d)) - 1.0)
+            w = self.lam * close + (1 - self.lam) * gain + 1e-9 * rng.random(len(iu))
+            W[iu, ju] = W[ju, iu] = w
+        used = np.zeros(k, dtype=bool)
+        local = []
+        for e in np.argsort(-W[iu, ju], kind="stable"):
+            a, b = iu[e], ju[e]
+            if not used[a] and not used[b]:
+                used[a] = used[b] = True
+                local.append((int(a), int(b)))
+        if used.all():
+            local = improve_matching(local, lambda a, b: W[a, b], lambda a, b: allowed[a, b])
+            pairs = [(int(idx[a]), int(idx[b])) for a, b in local]
+        else:
+            pos = {int(x): t for t, x in enumerate(idx)}
+            pairs = min_cost_match([int(x) for x in idx],
+                                   lambda a, b: 1.0 - W[pos[a], pos[b]], forbid, state.opp)
+        for a, b in pairs:  # fold planned games into the posterior
+            q = 1.0 / (1.0 + np.exp(-(self.r[a] - self.r[b])))
+            v = q * (1 - q)
+            self.H[a, a] += v
+            self.H[b, b] += v
+            self.H[a, b] -= v
+            self.H[b, a] -= v
+        self.S = np.linalg.inv(self.H)
+        return pairs
+
+
+def _erank_variant(lam):
+    tag = f"erank-{int(round(lam * 100)):02d}"
+    return type(tag.replace("-", "_"), (ERankBT,), {"lam": lam, "name": tag,
+                                                    "__doc__": f"ERankBT with lam = {lam}."})
+
+
+ERANK_VARIANTS = [_erank_variant(x) for x in (0.0, 0.5)]
+
+
 def _info_variant(lam):
     tag = f"info-bt-{int(round(lam * 100)):02d}"
     return type(tag.replace("-", "_"), (InfoBT,), {"lam": lam, "name": tag,
@@ -430,7 +573,8 @@ def _info_variant(lam):
 INFO_VARIANTS = [_info_variant(x) for x in (0.0, 0.25, 0.5, 0.75)]
 
 PAIRERS = {c.name: c for c in [RandomPairer, RandomNoReplay, RoundRobin, Swiss, Monrad,
-                               AcceleratedSwiss, EloMatch, RankBT, RankPU, *INFO_VARIANTS]}
+                               AcceleratedSwiss, EloMatch, RankBT, RankPU, *INFO_VARIANTS,
+                               *ERANK_VARIANTS]}
 
 
 def make_pairer(name: str) -> Pairer:
