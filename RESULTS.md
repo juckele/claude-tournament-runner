@@ -28,8 +28,8 @@ before the next is chosen. Run on the rounds and league studies at λ = 0, 0.25,
    of "information" (p(1−p) and order uncertainty) depends only on the rating gap,
    just like closeness. Pairing for information collapses to pairing for closeness.
 2. **It doesn't beat the simpler rank pairer.** Ranking quality ties Swiss (mean
-   Δτ −0.000 to +0.001 in the rounds study), but match quality is slightly lower
-   (−0.002 on average, −0.004 for 9 rounds in the league study); it is weakly
+   Δτ within ±0.001 in the rounds study), but match quality is slightly lower
+   (−0.002 on average; −0.003 to −0.004 for 9 rounds in the league study); it is weakly
    dominated by the best Swiss in 10–14 of 48 rounds conditions. In weekly
    batches it weakly beats the best Swiss in 7–8 of 18 conditions, against 17 of
    18 for `rank-bt/bt`. The likely cost is the greedy matcher: taking the closest
