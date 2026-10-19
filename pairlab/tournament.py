@@ -76,6 +76,41 @@ def assign_colors(state: State, a: int, b: int, rng) -> tuple[int, int]:
     return (w, b if w == a else a)
 
 
+def plan_batch(st: State, pairer, demand, rng):
+    """Pair one batch: every player wants demand[i] games, nobody meets the
+    same opponent twice in the batch. Sub-rounds pair whoever still has demand;
+    odd sub-rounds sit someone out (pairer.choose_bye). Colours are assigned and
+    the state's colour and opponent counts updated. Returns the (white, black)
+    pairs and each player's unmet demand."""
+    n = st.n
+    remaining = np.array(demand, dtype=int).copy()
+    forbid = np.zeros((n, n), dtype=bool)  # met this batch
+    np.fill_diagonal(forbid, True)
+    batch_pairs = []
+    while True:
+        active = [int(i) for i in np.nonzero(remaining > 0)[0]]
+        if len(active) < 2:
+            break
+        if len(active) % 2:
+            sit = pairer.choose_bye(st, active, remaining, rng)
+            active.remove(sit)
+        pairs = pairer.pair(st, active, forbid, rng)
+        if not pairs:
+            break
+        for p, q in pairs:
+            w, k = assign_colors(st, p, q, rng)
+            st.whites[w] += 1
+            st.blacks[k] += 1
+            st.last_color[w], st.last_color[k] = 1, -1
+            st.opp[w, k] += 1
+            st.opp[k, w] += 1
+            forbid[w, k] = forbid[k, w] = True
+            remaining[w] -= 1
+            remaining[k] -= 1
+            batch_pairs.append((w, k))
+    return batch_pairs, remaining
+
+
 def simulate(table: OutcomeTable, field: np.ndarray, schedule: list[np.ndarray], pairer,
              rng: np.random.Generator, seed_rank: np.ndarray, bye_points: float = 1.0) -> Result:
     n = len(field)
@@ -90,31 +125,7 @@ def simulate(table: OutcomeTable, field: np.ndarray, schedule: list[np.ndarray],
     pairer.start(st, rng)
     for b, demand in enumerate(schedule):
         st.batch = b
-        remaining = np.array(demand, dtype=int).copy()
-        forbid = np.zeros((n, n), dtype=bool)  # met this batch
-        np.fill_diagonal(forbid, True)
-        batch_pairs = []
-        while True:
-            active = [int(i) for i in np.nonzero(remaining > 0)[0]]
-            if len(active) < 2:
-                break
-            if len(active) % 2:
-                sit = pairer.choose_bye(st, active, remaining, rng)
-                active.remove(sit)
-            pairs = pairer.pair(st, active, forbid, rng)
-            if not pairs:
-                break
-            for p, q in pairs:
-                w, k = assign_colors(st, p, q, rng)
-                st.whites[w] += 1
-                st.blacks[k] += 1
-                st.last_color[w], st.last_color[k] = 1, -1
-                st.opp[w, k] += 1
-                st.opp[k, w] += 1
-                forbid[w, k] = forbid[k, w] = True
-                remaining[w] -= 1
-                remaining[k] -= 1
-                batch_pairs.append((w, k))
+        batch_pairs, remaining = plan_batch(st, pairer, demand, rng)
         # Unmet demand becomes byes.
         st.byes += remaining
         st.score += bye_points * remaining

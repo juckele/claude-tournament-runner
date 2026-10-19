@@ -37,6 +37,42 @@ python3 -m pairlab run --tables data/dice-pools.tsv data/normal-equal.tsv \
 python3 -m pairlab report results/adhoc.csv --out results/adhoc/
 ```
 
+## Running a real league
+
+`pairlab.league` runs an actual league from one JSON file kept in version
+control, using the same pairers and rankers as the studies (default: rank
+pairing on a live Bradley-Terry fit, ranked by Bradley-Terry). Players register,
+report results and withdraw by editing their own entries; the organiser runs
+`advance` once a week.
+
+```
+python3 -m pairlab.league init league.json --name "Autumn League" \
+    --players alice bob carol --weeks 4 --games 8-9 --min-games 6 --bracket 8
+python3 -m pairlab.league validate league.json     # e.g. in CI on every pull request
+python3 -m pairlab.league advance league.json --email week-1.md
+python3 -m pairlab.league standings league.json    # recompute after late reports
+```
+
+- **tournament**: weeks, target games per player over the group phase
+  (`games_target` min-max), current week, pairing and ranking systems, minimum
+  games to be ranked, bracket size, and a seed that makes pairings reproducible.
+- **players**: username, weeks they can't play (`byes`), personal
+  `max_games_per_week`, `withdrawn`.
+- **matches**: id, week, white, black, `winner` (a username, `draw`, `pending`,
+  or `void` when a withdrawal cancels the game).
+- **standings**: written by the script: every player in rank order, plus the
+  eligible players and the bracket. Eligible = not withdrawn, no unreported games
+  from earlier weeks, and still able to reach the minimum number of games.
+
+`advance` closes the current week, voids unplayed games of anyone who withdrew,
+pairs the next week (each player's remaining target spread evenly over the weeks
+they can still play, capped by their weekly limit; no rematches), updates the
+standings and writes a Markdown email: the new pairings, overdue games, an
+anonymous count of withdrawals, and the bracket leaderboard. After the last week
+it closes the group phase and lists who advances. A worked 13-player example
+(byes, a weekly limit of 1, a withdrawal, late and missing reports) is in
+[`examples/league/`](examples/league/).
+
 ## How a trial works
 
 1. **Field.** Draw N players from an outcome table without replacement.

@@ -1,0 +1,698 @@
+{
+  "_help": {
+    "tournament": "Organiser settings. current_week and status are maintained by the script.",
+    "players": "Register by adding {\"username\": ..., \"byes\": [weeks you can't play], \"max_games_per_week\": N, \"withdrawn\": false}. To withdraw, set withdrawn to true; your unplayed games become void.",
+    "matches": "Report a result by changing \"winner\" from \"pending\" to the winner's username, or to \"draw\". Don't change anything else.",
+    "standings": "Written by the script; edits are overwritten."
+  },
+  "tournament": {
+    "name": "Test League",
+    "weeks": 4,
+    "games_target": {
+      "min": 8,
+      "max": 9
+    },
+    "current_week": 4,
+    "status": "complete",
+    "pairing": "rank-bt",
+    "ranking": "bt",
+    "min_games_to_rank": 6,
+    "bracket_size": 8,
+    "seed": 7
+  },
+  "players": [
+    {
+      "username": "alice",
+      "byes": [],
+      "max_games_per_week": 3,
+      "withdrawn": false
+    },
+    {
+      "username": "bob",
+      "byes": [
+        2
+      ],
+      "max_games_per_week": 3,
+      "withdrawn": false
+    },
+    {
+      "username": "carol",
+      "byes": [],
+      "max_games_per_week": 1,
+      "withdrawn": false
+    },
+    {
+      "username": "dave",
+      "byes": [
+        3,
+        4
+      ],
+      "max_games_per_week": 3,
+      "withdrawn": false
+    },
+    {
+      "username": "erin",
+      "byes": [],
+      "max_games_per_week": 3,
+      "withdrawn": false
+    },
+    {
+      "username": "frank",
+      "byes": [],
+      "max_games_per_week": 3,
+      "withdrawn": false
+    },
+    {
+      "username": "gina",
+      "byes": [],
+      "max_games_per_week": 3,
+      "withdrawn": false
+    },
+    {
+      "username": "hank",
+      "byes": [],
+      "max_games_per_week": 3,
+      "withdrawn": false
+    },
+    {
+      "username": "ivy",
+      "byes": [],
+      "max_games_per_week": 3,
+      "withdrawn": false
+    },
+    {
+      "username": "jack",
+      "byes": [],
+      "max_games_per_week": 3,
+      "withdrawn": false
+    },
+    {
+      "username": "kate",
+      "byes": [],
+      "max_games_per_week": 3,
+      "withdrawn": false
+    },
+    {
+      "username": "liam",
+      "byes": [],
+      "max_games_per_week": 3,
+      "withdrawn": false
+    },
+    {
+      "username": "mona",
+      "byes": [],
+      "max_games_per_week": 3,
+      "withdrawn": true,
+      "withdrawn_week": 2
+    }
+  ],
+  "matches": [
+    {
+      "id": "w1-01",
+      "week": 1,
+      "white": "jack",
+      "black": "hank",
+      "winner": "draw"
+    },
+    {
+      "id": "w1-02",
+      "week": 1,
+      "white": "dave",
+      "black": "frank",
+      "winner": "dave"
+    },
+    {
+      "id": "w1-03",
+      "week": 1,
+      "white": "kate",
+      "black": "alice",
+      "winner": "alice"
+    },
+    {
+      "id": "w1-04",
+      "week": 1,
+      "white": "gina",
+      "black": "erin",
+      "winner": "erin"
+    },
+    {
+      "id": "w1-05",
+      "week": 1,
+      "white": "mona",
+      "black": "ivy",
+      "winner": "ivy"
+    },
+    {
+      "id": "w1-06",
+      "week": 1,
+      "white": "bob",
+      "black": "liam",
+      "winner": "bob"
+    },
+    {
+      "id": "w1-07",
+      "week": 1,
+      "white": "hank",
+      "black": "carol",
+      "winner": "carol"
+    },
+    {
+      "id": "w1-08",
+      "week": 1,
+      "white": "dave",
+      "black": "jack",
+      "winner": "dave"
+    },
+    {
+      "id": "w1-09",
+      "week": 1,
+      "white": "frank",
+      "black": "kate",
+      "winner": "frank"
+    },
+    {
+      "id": "w1-10",
+      "week": 1,
+      "white": "alice",
+      "black": "gina",
+      "winner": "alice"
+    },
+    {
+      "id": "w1-11",
+      "week": 1,
+      "white": "erin",
+      "black": "mona",
+      "winner": "erin"
+    },
+    {
+      "id": "w1-12",
+      "week": 1,
+      "white": "ivy",
+      "black": "bob",
+      "winner": "bob"
+    },
+    {
+      "id": "w1-13",
+      "week": 1,
+      "white": "liam",
+      "black": "dave",
+      "winner": "dave"
+    },
+    {
+      "id": "w2-01",
+      "week": 2,
+      "white": "alice",
+      "black": "dave",
+      "winner": "alice"
+    },
+    {
+      "id": "w2-02",
+      "week": 2,
+      "white": "carol",
+      "black": "erin",
+      "winner": "draw"
+    },
+    {
+      "id": "w2-03",
+      "week": 2,
+      "white": "frank",
+      "black": "ivy",
+      "winner": "frank"
+    },
+    {
+      "id": "w2-04",
+      "week": 2,
+      "white": "jack",
+      "black": "liam",
+      "winner": "liam"
+    },
+    {
+      "id": "w2-05",
+      "week": 2,
+      "white": "gina",
+      "black": "hank",
+      "winner": "gina"
+    },
+    {
+      "id": "w2-06",
+      "week": 2,
+      "white": "kate",
+      "black": "mona",
+      "winner": "void"
+    },
+    {
+      "id": "w2-07",
+      "week": 2,
+      "white": "erin",
+      "black": "dave",
+      "winner": "dave"
+    },
+    {
+      "id": "w2-08",
+      "week": 2,
+      "white": "frank",
+      "black": "alice",
+      "winner": "alice"
+    },
+    {
+      "id": "w2-09",
+      "week": 2,
+      "white": "ivy",
+      "black": "jack",
+      "winner": "ivy"
+    },
+    {
+      "id": "w2-10",
+      "week": 2,
+      "white": "liam",
+      "black": "hank",
+      "winner": "hank"
+    },
+    {
+      "id": "w2-11",
+      "week": 2,
+      "white": "gina",
+      "black": "kate",
+      "winner": "gina"
+    },
+    {
+      "id": "w2-12",
+      "week": 2,
+      "white": "dave",
+      "black": "mona",
+      "winner": "dave"
+    },
+    {
+      "id": "w3-01",
+      "week": 3,
+      "white": "bob",
+      "black": "alice",
+      "winner": "bob"
+    },
+    {
+      "id": "w3-02",
+      "week": 3,
+      "white": "erin",
+      "black": "frank",
+      "winner": "frank"
+    },
+    {
+      "id": "w3-03",
+      "week": 3,
+      "white": "liam",
+      "black": "gina",
+      "winner": "gina"
+    },
+    {
+      "id": "w3-04",
+      "week": 3,
+      "white": "hank",
+      "black": "ivy",
+      "winner": "draw"
+    },
+    {
+      "id": "w3-05",
+      "week": 3,
+      "white": "kate",
+      "black": "jack",
+      "winner": "jack"
+    },
+    {
+      "id": "w3-06",
+      "week": 3,
+      "white": "alice",
+      "black": "carol",
+      "winner": "alice"
+    },
+    {
+      "id": "w3-07",
+      "week": 3,
+      "white": "erin",
+      "black": "bob",
+      "winner": "bob"
+    },
+    {
+      "id": "w3-08",
+      "week": 3,
+      "white": "frank",
+      "black": "gina",
+      "winner": "draw"
+    },
+    {
+      "id": "w3-09",
+      "week": 3,
+      "white": "ivy",
+      "black": "liam",
+      "winner": "draw"
+    },
+    {
+      "id": "w3-10",
+      "week": 3,
+      "white": "hank",
+      "black": "kate",
+      "winner": "hank"
+    },
+    {
+      "id": "w3-11",
+      "week": 3,
+      "white": "kate",
+      "black": "bob",
+      "winner": "bob"
+    },
+    {
+      "id": "w4-01",
+      "week": 4,
+      "white": "bob",
+      "black": "frank",
+      "winner": "bob"
+    },
+    {
+      "id": "w4-02",
+      "week": 4,
+      "white": "alice",
+      "black": "ivy",
+      "winner": "pending"
+    },
+    {
+      "id": "w4-03",
+      "week": 4,
+      "white": "jack",
+      "black": "gina",
+      "winner": "gina"
+    },
+    {
+      "id": "w4-04",
+      "week": 4,
+      "white": "hank",
+      "black": "erin",
+      "winner": "hank"
+    },
+    {
+      "id": "w4-05",
+      "week": 4,
+      "white": "liam",
+      "black": "kate",
+      "winner": "draw"
+    },
+    {
+      "id": "w4-06",
+      "week": 4,
+      "white": "gina",
+      "black": "bob",
+      "winner": "bob"
+    },
+    {
+      "id": "w4-07",
+      "week": 4,
+      "white": "alice",
+      "black": "hank",
+      "winner": "alice"
+    },
+    {
+      "id": "w4-08",
+      "week": 4,
+      "white": "frank",
+      "black": "liam",
+      "winner": "frank"
+    },
+    {
+      "id": "w4-09",
+      "week": 4,
+      "white": "jack",
+      "black": "erin",
+      "winner": "erin"
+    },
+    {
+      "id": "w4-10",
+      "week": 4,
+      "white": "ivy",
+      "black": "kate",
+      "winner": "kate"
+    },
+    {
+      "id": "w4-11",
+      "week": 4,
+      "white": "carol",
+      "black": "bob",
+      "winner": "draw"
+    },
+    {
+      "id": "w4-12",
+      "week": 4,
+      "white": "jack",
+      "black": "alice",
+      "winner": "alice"
+    },
+    {
+      "id": "w4-13",
+      "week": 4,
+      "white": "hank",
+      "black": "frank",
+      "winner": "hank"
+    },
+    {
+      "id": "w4-14",
+      "week": 4,
+      "white": "gina",
+      "black": "ivy",
+      "winner": "gina"
+    },
+    {
+      "id": "w4-15",
+      "week": 4,
+      "white": "erin",
+      "black": "liam",
+      "winner": "erin"
+    }
+  ],
+  "standings": {
+    "after_week": 4,
+    "ranking": "bt",
+    "final": true,
+    "eligible": [
+      "bob",
+      "dave",
+      "gina",
+      "frank",
+      "hank",
+      "erin",
+      "liam",
+      "kate",
+      "jack"
+    ],
+    "bracket": [
+      "bob",
+      "dave",
+      "gina",
+      "frank",
+      "hank",
+      "erin",
+      "liam",
+      "kate"
+    ],
+    "all": [
+      {
+        "rank": 1,
+        "username": "bob",
+        "played": 8,
+        "wins": 7,
+        "draws": 1,
+        "losses": 0,
+        "points": 7.5,
+        "scheduled": 8,
+        "eligible": true,
+        "rating": 1726.3
+      },
+      {
+        "rank": 2,
+        "username": "alice",
+        "played": 8,
+        "wins": 7,
+        "draws": 0,
+        "losses": 1,
+        "points": 7.0,
+        "scheduled": 9,
+        "eligible": false,
+        "rating": 1708.8,
+        "not_eligible_because": "unreported game(s) from week 4"
+      },
+      {
+        "rank": 3,
+        "username": "dave",
+        "played": 6,
+        "wins": 5,
+        "draws": 0,
+        "losses": 1,
+        "points": 5.0,
+        "scheduled": 6,
+        "eligible": true,
+        "rating": 1632.0
+      },
+      {
+        "rank": 4,
+        "username": "carol",
+        "played": 4,
+        "wins": 1,
+        "draws": 2,
+        "losses": 1,
+        "points": 2.0,
+        "scheduled": 4,
+        "eligible": false,
+        "rating": 1553.3,
+        "not_eligible_because": "has 4 game(s); needs 6"
+      },
+      {
+        "rank": 5,
+        "username": "gina",
+        "played": 9,
+        "wins": 5,
+        "draws": 1,
+        "losses": 3,
+        "points": 5.5,
+        "scheduled": 9,
+        "eligible": true,
+        "rating": 1550.5
+      },
+      {
+        "rank": 6,
+        "username": "frank",
+        "played": 9,
+        "wins": 4,
+        "draws": 1,
+        "losses": 4,
+        "points": 4.5,
+        "scheduled": 9,
+        "eligible": true,
+        "rating": 1517.2
+      },
+      {
+        "rank": 7,
+        "username": "hank",
+        "played": 9,
+        "wins": 4,
+        "draws": 2,
+        "losses": 3,
+        "points": 5.0,
+        "scheduled": 9,
+        "eligible": true,
+        "rating": 1511.3
+      },
+      {
+        "rank": 8,
+        "username": "erin",
+        "played": 9,
+        "wins": 4,
+        "draws": 1,
+        "losses": 4,
+        "points": 4.5,
+        "scheduled": 9,
+        "eligible": true,
+        "rating": 1502.2
+      },
+      {
+        "rank": 9,
+        "username": "ivy",
+        "played": 8,
+        "wins": 2,
+        "draws": 2,
+        "losses": 4,
+        "points": 3.0,
+        "scheduled": 9,
+        "eligible": false,
+        "rating": 1410.2,
+        "not_eligible_because": "unreported game(s) from week 4"
+      },
+      {
+        "rank": 10,
+        "username": "liam",
+        "played": 9,
+        "wins": 1,
+        "draws": 2,
+        "losses": 6,
+        "points": 2.0,
+        "scheduled": 9,
+        "eligible": true,
+        "rating": 1354.2
+      },
+      {
+        "rank": 11,
+        "username": "mona",
+        "played": 3,
+        "wins": 0,
+        "draws": 0,
+        "losses": 3,
+        "points": 0.0,
+        "scheduled": 3,
+        "eligible": false,
+        "rating": 1349.0,
+        "not_eligible_because": "withdrawn"
+      },
+      {
+        "rank": 12,
+        "username": "kate",
+        "played": 8,
+        "wins": 1,
+        "draws": 1,
+        "losses": 6,
+        "points": 1.5,
+        "scheduled": 8,
+        "eligible": true,
+        "rating": 1344.9
+      },
+      {
+        "rank": 13,
+        "username": "jack",
+        "played": 8,
+        "wins": 1,
+        "draws": 1,
+        "losses": 6,
+        "points": 1.5,
+        "scheduled": 8,
+        "eligible": true,
+        "rating": 1340.1
+      }
+    ]
+  },
+  "log": [
+    {
+      "week": 1,
+      "withdrawals": 0,
+      "voided": 0,
+      "games": 13,
+      "unpaired": [
+        "bob"
+      ]
+    },
+    {
+      "week": 2,
+      "withdrawals": 0,
+      "voided": 0,
+      "games": 12,
+      "unpaired": []
+    },
+    {
+      "week": 3,
+      "withdrawals": 1,
+      "voided": 1,
+      "games": 11,
+      "unpaired": [
+        "jack"
+      ]
+    },
+    {
+      "week": 4,
+      "withdrawals": 0,
+      "voided": 0,
+      "games": 15,
+      "unpaired": [
+        "kate"
+      ]
+    },
+    {
+      "week": 4,
+      "withdrawals": 0,
+      "voided": 0,
+      "closed": true
+    }
+  ]
+}
