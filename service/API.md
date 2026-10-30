@@ -3,7 +3,7 @@
 A hosted service for running tournaments: players sign up, get their games and
 report results; tournament directors (TDs) run rounds, settle disputes and can
 act for any player. The REST API is the only source of truth. Every other
-channel (TD console, SMS, email, git, apps) is an adapter that turns its
+channel (TD console, SMS, email, apps) is an adapter that turns its
 input into these same calls.
 
 Target platform: **Cloudflare Workers + D1**. This document is the contract.
@@ -13,10 +13,10 @@ An OpenAPI file generated from it is the next step.
 
 ## 1. Design principles
 
-1. **Game-agnostic.** Nothing assumes chess. A match has *N* ordered seats. The
-   tournament's *game profile* says how many seats a match has, whether seat
-   order matters (colours, turn order, sides), and what a result looks like
-   (win/loss/draw, placements, scores).
+1. **Game-agnostic.** Nothing assumes chess. A match has ordered seats. The
+   tournament's *game profile* says whether seat order matters (colours, turn
+   order, sides) and what a result looks like (win/loss/draw, placements,
+   scores). Seat counts aren't configurable in v1; see §8.
 2. **One API, many channels.** Adapters authenticate as a *channel principal*
    and call the same endpoints with the same rules. Each tournament chooses
    which channels are on.
@@ -36,7 +36,7 @@ An OpenAPI file generated from it is the next step.
 
 | Resource | What it is |
 |---|---|
-| **User** | A person with a login. Global across tournaments. Has verified contact points (email, phone, git handle). |
+| **User** | A person with a login. Global across tournaments. Has verified contact points (email, phone). |
 | **Tournament** | Settings, game profile, format, channel config, lifecycle status. |
 | **Entrant** | A user's registration in one tournament (display name, seed, status, availability). |
 | **Role grant** | `owner`, `director` or `observer` on one tournament. Being an entrant is separate, so a TD can also play. |
@@ -51,9 +51,8 @@ An OpenAPI file generated from it is the next step.
 ```json
 "game": {
   "name": "Dice Poker",
-  "seats": {"min": 2, "max": 2},        // players per match; {4,4} for a 4-player game
   "seat_order": "significant",          // "significant" | "irrelevant"
-  "seat_labels": ["White", "Black"],    // optional, display only; length = seats.max
+  "seat_labels": ["White", "Black"],    // optional, display only
   "result_mode": "placement",           // "placement" | "score"
   "allow_ties": true,                   // draws / shared placements
   "points": {"by_placement": [1, 0], "tie": "split"}  // optional; how results become standings points
@@ -72,8 +71,6 @@ An OpenAPI file generated from it is the next step.
   `{"outcome": "forfeit", "forfeiting_seats": [1]}`,
   `{"outcome": "void"}` (not played; counts for nobody).
 
-> The current `pairlab` pairers handle 2-seat matches only. N-seat formats need
-> new pairers. The API and storage don't change.
 
 ### 2.2 Format (per tournament)
 
@@ -90,17 +87,27 @@ An OpenAPI file generated from it is the next step.
 }
 ```
 
-### 2.3 Reporting policy (per tournament)
+### 2.3 Reporting and progression policy (per tournament)
 
 ```json
 "reporting": {
-  "who_may_report": "participants",     // "participants" | "any_participant_confirms" | "directors_only"
-  "confirm": "all_participants",        // "all_participants" | "first_report"
-  "auto_confirm_after": "PT24H",        // optional: a lone, uncontradicted report confirms after this
+  "who_may_report": "participants",     // "participants" | "directors_only"
   "amend_until": "round_closed",        // "round_closed" | "confirmed" | "never"
   "deadline": "PT0S"                    // optional offset from round start; overdue matches get flagged
+},
+"progression": {
+  "accept_undisputed_after": "PT24H",   // null = every participant must report
+  "unplayed": "block"                   // default for scheduled matches at advance: "block" | "void" | "double_forfeit"
 }
 ```
+
+There is no per-match confirmation timer. Whether a result is final enough is
+decided only when the round **advances** (§4.4). A match that only some
+participants have reported counts as final once its newest report is at least
+`accept_undisputed_after` old and no one has contradicted it. Younger
+unconfirmed results hold the round open, so opponents always get that long to
+dispute. Matches that every participant reported identically are final right
+away. Contested matches always block.
 
 ### 2.4 Channels (per tournament)
 
@@ -109,8 +116,7 @@ An OpenAPI file generated from it is the next step.
   "api":   {"enabled": true},
   "td":    {"enabled": true},
   "email": {"enabled": true,  "notify": ["pairings", "contested"], "inbound": true},
-  "sms":   {"enabled": false, "notify": ["pairings"], "inbound": true},
-  "git":   {"enabled": true,  "repo": "owner/name", "path": "tournaments/autumn.json", "inbound": "pull_request"}
+  "sms":   {"enabled": false, "notify": ["pairings"], "inbound": true}
 }
 ```
 
@@ -127,7 +133,7 @@ Each entrant can also pick which enabled channels contact them
 |---|---|---|
 | **User** | `Authorization: Bearer <session token>`. Sessions come from email magic link, SMS one-time code, or OAuth (GitHub). | Normal case. |
 | **Personal API token** | `Authorization: Bearer pat_…`, created by a user. Has scopes and an optional expiry. | Scripts and bots. Never more than the user's own rights. |
-| **Channel adapter** | `Authorization: Bearer chn_…` plus `X-Act-As: <user id>`. | Internal: SMS, email and git workers. Allowed to act only as a user whose verified contact point the inbound message came from. |
+| **Channel adapter** | `Authorization: Bearer chn_…` plus `X-Act-As: <user id>`. | Internal: SMS and email workers. Allowed to act only as a user whose verified contact point the inbound message came from. |
 | **Report link** | `?t=<signed token>` on one URL. | One-tap "report your game" links in notifications. Scoped to one entrant and one match, and expire. |
 
 ### 3.2 Tournament roles
@@ -219,8 +225,8 @@ results are in yet (a manual re-pair); this emits `pairings.changed`.
 | Status | Meaning |
 |---|---|
 | `scheduled` | No reports. |
-| `reported` | At least one report, none contradict, but confirmation is incomplete (for example, waiting on the opponent). |
-| `confirmed` | Reports agree per `reporting.confirm`, or a lone report passed `auto_confirm_after`. |
+| `reported` | Some participants have reported, none contradict, and others haven't reported yet. `reported_at` is the age of the newest report, which §4.4 uses. |
+| `confirmed` | Every participant has reported and all reports agree. |
 | `contested` | The latest revisions of two or more participants' reports disagree. |
 | `resolved` | A TD ruling is in force. Player reports no longer change the result. |
 | `void` | Not played (withdrawal, cancellation, or a TD ruling of void). |
@@ -244,17 +250,32 @@ Rules:
 
 ### 4.4 Closing a round
 
-By default `advance` fails with `409 round_not_ready` and lists the blocking
-matches if any match is `scheduled`, `reported`, or `contested`. The TD can
-pass `unfinished` to decide what happens to them in one call:
+`advance` checks every match in the round against the tournament's
+`progression` policy (§2.3):
+
+| Match status | Default at advance |
+|---|---|
+| `confirmed`, `resolved`, `void` | Final. |
+| `reported` and newest report ≥ `accept_undisputed_after` old | Final: the report stands as the result. |
+| `reported` but younger, or the policy is `null` | **Blocks.** The opponent still has time to dispute. |
+| `scheduled` | Per `progression.unplayed`. |
+| `contested` | **Always blocks.** It needs players to agree or a TD ruling. |
+
+If anything blocks, `advance` fails with `409 round_not_ready`. The response
+lists the blocking matches with their reason, and for young reports, the
+earliest time the round can advance (`ready_at`). A TD can override for this
+one call:
 
 ```json
-{ "unfinished": {
-    "scheduled": "void",            // "block" | "void" | "double_forfeit"
-    "reported":  "accept",          // "block" | "accept" (take the existing report as final)
-    "contested": "block"            // always "block": contested matches need a ruling
+{ "override": {
+    "reported":  "accept",          // accept young unconfirmed reports now
+    "scheduled": "void"             // "block" | "void" | "double_forfeit"
 } }
 ```
+
+Contested matches can't be overridden in bulk; they need a ruling.
+`GET /tournaments/{t}/rounds/current` includes `ready` and `ready_at` so TDs and
+the TD console can see when the round can progress.
 
 ### 4.5 Entrant status
 
@@ -280,7 +301,7 @@ opaque strings (ULIDs with type prefixes: `trn_`, `ent_`, `rnd_`, `mat_`, `rep_`
 | POST | `/auth/logout` | user | Revoke the current session. |
 | GET | `/me` | user | Profile, contact points, roles and entries. |
 | PATCH | `/me` | user | Display name, default contact prefs. |
-| POST | `/me/contacts` | user | Add a contact point (email, phone, git). Starts verification. |
+| POST | `/me/contacts` | user | Add a contact point (email, phone). Starts verification. |
 | DELETE | `/me/contacts/{contact_id}` | user | Remove a contact point. |
 | GET/POST/DELETE | `/me/tokens[/{id}]` | user | Personal API tokens. |
 
@@ -369,7 +390,6 @@ report on a player's behalf (§3.4). The audit log shows which happened.
 | GET/POST/DELETE | `/tournaments/{t}/webhooks[/{id}]` | owner | Outbound webhooks for events (signed with HMAC-SHA256, header `X-Signature`). |
 | POST | `/inbound/sms` | Twilio/Telnyx (signature-checked) | Internal adapter endpoint. |
 | POST | `/inbound/email` | Email Worker | Internal adapter endpoint. |
-| POST | `/inbound/git` | GitHub webhook (signature-checked) | Internal adapter endpoint. |
 
 Inbound adapters parse a shared command grammar and then call the endpoints
 above as the sender:
@@ -461,7 +481,7 @@ webhooks and channel adapters through Queues):
 
 | HTTP | `code` | When |
 |---|---|---|
-| 400 | `invalid_result` | Wrong seat count, illegal tie, or a score where placement is expected. |
+| 400 | `invalid_result` | Wrong number of entries for the match's seats, an illegal tie, or a score where placement is expected. |
 | 401 | `unauthenticated` | |
 | 403 | `forbidden` | Role check failed. `detail` names the missing role. |
 | 403 | `not_seated` | Reporting a match you're not in. |
@@ -480,7 +500,7 @@ webhooks and channel adapters through Queues):
 
 ```
 users(id, display_name, created_at)
-contacts(id, user_id, kind[email|phone|git], value, verified_at)      UNIQUE(kind, value)
+contacts(id, user_id, kind[email|phone], value, verified_at)      UNIQUE(kind, value)
 sessions(id, user_id, expires_at) / api_tokens(id, user_id, hash, scopes, expires_at)
 tournaments(id, name, status, visibility, settings_json, version, created_by, created_at)
 role_grants(tournament_id, user_id, role)                              PK(tournament_id, user_id)
@@ -500,24 +520,23 @@ idempotency(key, principal, response_json, expires_at)
   stale data. If the version check fails, the server retries once.
 - **Pairing engine:** `start` and `advance` hand a snapshot (entrants, finished
   matches, settings) to the engine and write the result in one batch.
-  JS/WASM pairers run in-Worker. The existing Python `pairlab` pairers can run
-  as a Python Worker or behind a small internal endpoint. See open questions.
+  The engine is `pairlab` itself, deployed as a **Python Worker** and called
+  by the API Worker through a service binding (`POST /pair`, `POST /rank`).
+  Live events and studies run the same code. If a heavy pairer exceeds Worker
+  CPU limits on large fields, the same package moves to a Cloudflare Container
+  behind the same binding.
 - **Outbox:** each events insert goes to a Cloudflare Queue in the same
-  request. Consumers deliver email, SMS, git commits and webhooks with retries.
+  request. Consumers deliver email, SMS and webhooks with retries.
 
 ---
 
-## 8. Open questions
+## 8. Out of scope for v1
 
-1. **Pairing engine runtime.** Port the pairers we need (Swiss, rank-bt) to
-   TypeScript, or run `pairlab` as a Python Worker (numpy support and
-   cold-start time need checking)? It could also run in a container the Worker calls.
-2. **Multi-seat pairing.** The API supports N seats, but no pairer does yet.
-   Which game(s) would come first?
-3. **Team events.** Out of scope for v1. An entrant could later be a team
-   with members.
-4. **Git channel direction.** Treat the repo as a read-only mirror plus
-   PR-based reporting, or let merged PRs to `league.json` be authoritative, as
-   `pairlab.league` does today?
-5. **Auto-confirm default.** Is `first_report` with a 24h window a sensible
-   default, or should the default require all participants?
+- **Seat counts / multi-player matches.** Not specified. Every match is
+  head-to-head (a bye has one seat). If we need N-player games later, they'll
+  get a proper design: pairing, result agreement, and what "contested" means
+  with more than two reporters.
+- **Team events.** Entrants are individuals.
+- **Version-control reporting.** No git channel. The `pairlab` export format
+  still allows offline analysis, and the file-based `pairlab.league` workflow
+  remains a separate tool.
