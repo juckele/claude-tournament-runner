@@ -146,6 +146,10 @@ Each entrant can also pick which enabled channels contact them
 | *(entrant)* | registering | Player actions on **their own** entrant record and matches. |
 | *(public)* | `visibility: "public"` | Read pairings and standings. No personal data. |
 
+A tournament can belong to a **club** (§5.9). Club admins are implicit
+`owner`s of every club tournament and club directors are implicit
+`director`s; explicit grants still work alongside.
+
 ### 3.3 Permission matrix
 
 `self` = the caller is the entrant concerned. `TD` = owner or director.
@@ -453,7 +457,50 @@ claims, dispute, schedule, comments and attachments are *self (seated)* or
 Entrant gains `paused` and `disqualified`. Match gains a `claim_pending`
 flag alongside its status.
 
-### 5.9 Events
+### 5.9 Clubs and plans
+
+Paid plans exist only when the Worker has `BILLING=on`. Without it every
+tournament is `unlimited` and the billing endpoints answer `409`.
+
+| Plan | Players per event | Running at once | Directors per event | Auto-pairing, SMS |
+|---|---|---|---|---|
+| `free` | 24 | 1 (per club, or per creator outside a club) | 2, owner included | no |
+| `club` ($10/mo) | 150 | any | any | yes |
+| `event_pass` (one tournament) | any | doesn't count | any | yes |
+
+- A tournament's plan is its event pass if it has one, else its club's plan,
+  else `free`. `GET /tournaments/:t` includes `plan {plan, started_plan,
+  limits, billing}` and `club {id, name}`.
+- **When limits apply.** Player count and running-at-once are checked when
+  round 1 is paired (also on `dry_run`). Directors are checked when granting.
+  Auto-pairing and SMS are checked when switched on. A free club has at most
+  two members.
+- **Snapshot.** The plan is recorded at the start (`started_plan`). While the
+  tournament runs it keeps the better of that and its live plan, so a lapsed
+  subscription never breaks an event mid-way.
+
+| Method | Path | Who | Purpose |
+|---|---|---|---|
+| GET | `/plans` | anyone | `{billing, checkout, plans}`: what each plan includes. |
+| POST | `/clubs` | signed-in user | `{name}`. The creator is the first admin. |
+| GET | `/clubs` | member | The caller's clubs. |
+| GET / PATCH / DELETE | `/clubs/:c` | member / admin / admin | Details with plan, limits, usage and members (emails for admins). Rename. Delete (not while paid; its tournaments go back to their owners). |
+| POST | `/clubs/:c/members` | admin | `{email \| phone \| user_id, role: admin\|director}`. |
+| PATCH / DELETE | `/clubs/:c/members/:u` | admin (or `me` to leave) | Change role or remove. One admin must remain. |
+| GET | `/clubs/:c/tournaments` | member | |
+| POST | `/clubs/:c/checkout` | admin | `{interval: month\|year}` → `{url}`, a Stripe Checkout page. |
+| POST | `/clubs/:c/portal` | admin | `{url}` of the Stripe billing portal (change card, cancel). |
+| POST | `/tournaments/:t/event-pass` | TD | `{url}`, a one-off Stripe payment for this tournament. |
+| POST | `/billing/stripe-webhook` | Stripe | Signed with `STRIPE_WEBHOOK_SECRET`; each event applied once. Handles `checkout.session.completed` and `customer.subscription.created/updated/deleted`. |
+
+`POST /tournaments` and `PATCH /tournaments/:t` take `club_id` (you must be a
+member; owners only, and not while running). With `DEV_MODE=1` and no Stripe
+key, checkout and event passes switch on immediately.
+
+The Android app shows plan limits but no purchase buttons; plans are bought on
+the website.
+
+### 5.10 Events
 
 Every write emits one or more events (stored in `events`, delivered to
 webhooks and channel adapters through Queues):
@@ -490,6 +537,7 @@ webhooks and channel adapters through Queues):
 | 409 | `round_closed` | Player amend after close. |
 | 409 | `round_not_ready` | `advance` blocked. `blocking` lists match ids and statuses. |
 | 409 | `already_registered` | |
+| 402 | `plan_limit` | The tournament's plan doesn't allow this (§5.9). The body has `plan`, `limit`, `max`, `have` and `upgrade.options`. |
 | 412 | `precondition_failed` | `If-Match` mismatch. The body contains the current resource. |
 | 422 | `pairing_failed` | The engine found no valid pairing under the constraints. Retry with `rematches: allow` or a manual pairing. |
 | 429 | `rate_limited` | Mainly inbound channels and `/auth/*`. |

@@ -191,10 +191,13 @@ Both run the full test suite first.
   needs Edit permission on Workers Scripts, D1, Queues and Workers Routes, plus
   Custom Domains if you use your own domain.
 - **Optional secrets:** `RESEND_API_KEY`, `TWILIO_*`, `FCM_SERVICE_ACCOUNT`,
-  `CHANNEL_TOKEN`, `INBOUND_EMAIL_SECRET`.
+  `CHANNEL_TOKEN`, `INBOUND_EMAIL_SECRET`, `STRIPE_SECRET_KEY`,
+  `STRIPE_WEBHOOK_SECRET`.
 - **Optional variables:** `PUBLIC_URL` (your domain; without it the service runs
   at its workers.dev address), `EMAIL_FROM`, `ANDROID_APP_ID`,
-  `ANDROID_CERT_SHA256`, `CORS_ORIGINS`.
+  `ANDROID_CERT_SHA256`, `CORS_ORIGINS`, and for paid plans `BILLING` (`on`),
+  `STRIPE_PRICE_CLUB_MONTHLY`, `STRIPE_PRICE_CLUB_YEARLY`,
+  `STRIPE_PRICE_EVENT_PASS`.
 
 Without the Cloudflare secrets the deploy job skips with a warning.
 
@@ -229,6 +232,33 @@ channels:
 - **Email (other providers):** POST parsed mail to `/v1/inbound/email` with the
   `X-Inbound-Secret` header.
 
+**Paid plans.** Leave `BILLING` unset and everything is free and unlimited.
+To charge, see "Clubs and plans" below.
+
+## Clubs and plans
+
+A club shares tournaments between its admins (owners of every club
+tournament) and directors. The free plan runs events of up to 24 players, one
+at a time, with two directors and no automatic pairing or SMS. The $10/month
+Club plan lifts that for the whole club, and a one-off event pass lifts it for
+one tournament. API.md §5.9 has the limits and endpoints.
+
+Payments go through Stripe Checkout; the Worker calls Stripe's REST API with
+`fetch`, with no SDK. To switch it on:
+
+1. In Stripe, create a recurring price for the Club plan (monthly, and yearly
+   if you want it) and a one-time price for the event pass.
+2. Add a webhook endpoint at `{PUBLIC_URL}/v1/billing/stripe-webhook` for
+   `checkout.session.completed` and `customer.subscription.created`,
+   `.updated` and `.deleted`.
+3. Set `BILLING=on`, the three `STRIPE_PRICE_*` variables, and the
+   `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` secrets, then deploy.
+4. Turn on the customer portal in Stripe so admins can change cards and
+   cancel.
+
+`./dev.sh` runs with billing on (set `BILLING=off` to drop the limits). Without
+a Stripe key in development, checkout switches the plan on immediately.
+
 ## CI
 
 `.github/workflows/service.yml` runs on every PR that touches the service:
@@ -236,7 +266,7 @@ channels:
 - engine tests
 - web typecheck and build
 - API typecheck and tests
-- all three browser tests against `./dev.sh`, with screenshots uploaded
+- all four browser tests against `./dev.sh`, with screenshots uploaded
 
 `.github/workflows/android.yml` builds the app.
 
@@ -260,6 +290,9 @@ session only, not an API token; Profile → Delete account in the app does this.
   ones stay as archives. A tournament that's still live blocks deletion
   (`409 sole_owner`, with the list) until they make someone else an owner or
   cancel it.
+- **Clubs they're the only admin of:** an empty free club is deleted. A club
+  with other members or a paid plan blocks deletion (`409 sole_club_admin`)
+  until they make someone else an admin or cancel the plan.
 - **Afterwards:** signing in again with the same email starts a new, empty
   account.
 

@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { isNative, pathFromScan, scanQr } from "../native";
-import { PUBLIC_ORIGIN, Tournament } from "../api";
+import { ClubSummary, PUBLIC_ORIGIN, Tournament } from "../api";
+import { planLabel } from "../plan";
 import { tournamentStatusText } from "../format";
 import { useApi, useSession, useToast } from "../hooks";
 import { Button, Empty, Section } from "../ui";
@@ -10,6 +11,7 @@ export function Home() {
   const navigate = useNavigate();
   const toast = useToast();
   const open = useApi<{ tournaments: Tournament[] }>("/tournaments?status=registration,running");
+  const clubs = useApi<{ clubs: ClubSummary[] }>("/clubs");
   if (!me) return null;
   async function scan() {
     try {
@@ -70,6 +72,23 @@ export function Home() {
           </ul>
         </Section>
       ) : null}
+
+      <Section title="Clubs" actions={<Link to="/clubs" className="small">{clubs.data?.clubs.length ? "All clubs" : "Start a club"}</Link>}>
+        {clubs.data?.clubs.length ? (
+          <ul className="list">
+            {clubs.data.clubs.map((c) => (
+              <li key={c.id} className="link-row">
+                <Link to={`/clubs/${c.id}`} className="t-row">
+                  <span className="t-name">{c.name}</span>
+                  <span className={`tag ${c.plan === "club" ? "tag-felt" : ""}`}>{planLabel[c.plan]}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="small muted">A club shares tournaments between its directors. The Club plan runs bigger events, several at once, with automatic pairing.</p>
+        )}
+      </Section>
 
       {others.length ? (
         <Section title="Open to join">

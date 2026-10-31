@@ -2,6 +2,7 @@ import { ReactNode, useEffect } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { enablePush, initNative } from "./native";
 import { useSession } from "./hooks";
+import { ClubPage, ClubsPage } from "./pages/Clubs";
 import { Home } from "./pages/Home";
 import { NewTournament } from "./pages/NewTournament";
 import { Poster } from "./pages/Poster";
@@ -27,6 +28,8 @@ export function App() {
       <Route path="/t/:tid/*" element={<Shell><TournamentRoutes /></Shell>} />
       <Route path="/" element={<RequireSession><Shell><Home /></Shell></RequireSession>} />
       <Route path="/new" element={<RequireSession><Shell narrow><NewTournament /></Shell></RequireSession>} />
+      <Route path="/clubs" element={<RequireSession><Shell narrow><ClubsPage /></Shell></RequireSession>} />
+      <Route path="/clubs/:cid" element={<RequireSession><Shell><ClubPage /></Shell></RequireSession>} />
       <Route path="/me" element={<RequireSession><Shell narrow><Profile /></Shell></RequireSession>} />
       <Route path="*" element={<Shell narrow><h1>Page not found</h1><p><Link to="/">Go to your tournaments</Link></p></Shell>} />
     </Routes>

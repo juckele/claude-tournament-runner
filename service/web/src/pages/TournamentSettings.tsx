@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { api, Settings } from "../api";
+import { api, ClubSummary, Settings } from "../api";
+import { NeedsPlan, planLabel } from "../plan";
 import { hours } from "../format";
 import { useAction, useApi } from "../hooks";
 import { Button, Field, Section } from "../ui";
@@ -67,6 +68,8 @@ export function TournamentSettings() {
             </Field>
           </div>
         </Section>
+
+        {owner ? <ClubSection /> : null}
 
         <Section title="Game and format">
           <div className="panel form">
@@ -143,8 +146,9 @@ export function TournamentSettings() {
             <Field label="Report deadline, in hours after the round opens" hint="Games still open after this are flagged as overdue. Empty for no deadline.">
               <input inputMode="numeric" value={hours(s.reporting.deadline)} onChange={(e) => up("reporting", { deadline: iso(e.target.value) })} />
             </Field>
+            <NeedsPlan feature="auto_advance" t={t} />
             <label className="check">
-              <input type="checkbox" checked={!!s.progression.auto_advance} onChange={(e) => up("progression", { auto_advance: e.target.checked })} />
+              <input type="checkbox" checked={!!s.progression.auto_advance} disabled={!s.progression.auto_advance && t.plan?.billing && !t.plan.limits.auto_advance} onChange={(e) => up("progression", { auto_advance: e.target.checked })} />
               <span>
                 Pair the next round automatically
                 <span className="field-hint" style={{ display: "block" }}>As soon as every game is settled, the round closes and the next one is paired and sent out. Unreported games wait for the deadline. Pause the tournament to stop it.</span>
@@ -203,6 +207,7 @@ export function TournamentSettings() {
               <fieldset key={ch} disabled={ch === "sms" && !owner}>
                 <legend>{ch === "email" ? "Email" : "Text messages"}</legend>
                 {ch === "sms" && !owner ? <p className="small muted">Text messages cost money, so only the owner can change them.</p> : null}
+                {ch === "sms" && owner ? <NeedsPlan feature="sms" t={t} /> : null}
                 <label className="check"><input type="checkbox" checked={s.channels[ch].enabled} onChange={(e) => up("channels", { [ch]: { ...s.channels[ch], enabled: e.target.checked } } as any)} /><span>Use {ch === "email" ? "email" : "text messages"}</span></label>
                 <label className="check"><input type="checkbox" checked={!!s.channels[ch].inbound} onChange={(e) => up("channels", { [ch]: { ...s.channels[ch], inbound: e.target.checked } } as any)} /><span>Players can report by replying</span></label>
                 <div className="row">
@@ -328,6 +333,32 @@ function DeleteDraft() {
       <div className="panel stack">
         <p>Drafts can be deleted. Once registration opens, cancel the tournament instead.</p>
         <Button kind="danger" busy={busy} style={{ justifySelf: "start" }} onClick={async () => { if (await run(() => api("DELETE", `/tournaments/${t.id}`), "Deleted.")) nav("/"); }}>Delete draft</Button>
+      </div>
+    </Section>
+  );
+}
+
+/** Move the tournament into or out of a club (owners, before it starts). Saves on its own. */
+function ClubSection() {
+  const { t, reload } = useT();
+  const clubs = useApi<{ clubs: ClubSummary[] }>("/clubs");
+  const { busy, run } = useAction();
+  const running = ["running", "paused"].includes(t.status);
+  const done = ["complete", "cancelled"].includes(t.status);
+  if (!clubs.data?.clubs.length && !t.club) return null;
+  const move = (club_id: string | null) =>
+    run(async () => { await api("PATCH", `/tournaments/${t.id}`, { club_id }, { headers: { "if-match": `"${t.version}"` } }); await reload(); }, club_id ? "Moved into the club." : "Moved out of the club.");
+  return (
+    <Section title="Club">
+      <div className="panel form">
+        <Field label="Run by" hint={running ? "A tournament can't change clubs while it's running." : "Club admins and directors can run club tournaments, and it uses the club's plan."}>
+          <select value={t.club?.id ?? ""} disabled={busy || running || done} onChange={(e) => move(e.target.value || null)}>
+            <option value="">No club, just me</option>
+            {t.club && !clubs.data?.clubs.some((c) => c.id === t.club!.id) ? <option value={t.club.id}>{t.club.name}</option> : null}
+            {clubs.data?.clubs.map((c) => <option key={c.id} value={c.id}>{c.name} ({planLabel[c.plan]})</option>)}
+          </select>
+        </Field>
+        {t.plan?.billing ? <p className="small muted">This tournament is on: {planLabel[t.plan.plan]}.</p> : null}
       </div>
     </Section>
   );

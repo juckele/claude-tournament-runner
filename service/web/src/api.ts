@@ -118,7 +118,21 @@ export interface Tournament {
   id: string; code: string; name: string; description: string; status: string; visibility: string; registration_open: boolean;
   current_round: number; settings: Settings; cancelled_reason: string | null; version: number; created_at: string;
   my_role?: "owner" | "director" | "observer" | null; my_entrant_id?: string | null;
+  club?: { id: string; name: string } | null; plan?: PlanInfo;
 }
+export interface Limits { max_players: number | null; max_running: number | null; max_directors: number | null; auto_advance: boolean; sms: boolean }
+export type PlanName = "free" | "club" | "event_pass" | "unlimited";
+export interface PlanInfo { plan: PlanName; started_plan: PlanName | null; limits: Limits; billing: boolean }
+export interface ClubSummary { id: string; name: string; my_role: "admin" | "director"; plan: PlanName }
+export interface Club extends ClubSummary {
+  plan_status: string | null; plan_interval: "month" | "year" | null; plan_renews_at: string | null; limits: Limits;
+  billing: { enforced: boolean; available: boolean; has_customer: boolean };
+  usage: { running: number; tournaments: number; members: number };
+  members: { user_id: string; role: "admin" | "director"; display_name: string; email?: string | null }[];
+  created_at: string;
+}
+/** The body of a 402 plan_limit error. */
+export interface PlanLimitBody { code: "plan_limit"; detail: string; plan: PlanName; limit: string; max?: number; have?: number; upgrade?: { club_id?: string; options: string[] } }
 export interface Entrant {
   id: string; user_id: string; display_name: string; status: string; seed: number | null; rating: number | null;
   availability?: number[]; requested_byes?: number[]; max_games_per_round?: number | null; contact_prefs?: Record<string, boolean>;

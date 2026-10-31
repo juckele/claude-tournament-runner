@@ -48,6 +48,10 @@ jobs:
       ANDROID_APP_ID: ${{ vars.ANDROID_APP_ID }}
       ANDROID_CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
       CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
+      BILLING: ${{ vars.BILLING }}
+      STRIPE_PRICE_CLUB_MONTHLY: ${{ vars.STRIPE_PRICE_CLUB_MONTHLY }}
+      STRIPE_PRICE_CLUB_YEARLY: ${{ vars.STRIPE_PRICE_CLUB_YEARLY }}
+      STRIPE_PRICE_EVENT_PASS: ${{ vars.STRIPE_PRICE_EVENT_PASS }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
       TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
@@ -55,6 +59,8 @@ jobs:
       FCM_SERVICE_ACCOUNT: ${{ secrets.FCM_SERVICE_ACCOUNT }}
       CHANNEL_TOKEN: ${{ secrets.CHANNEL_TOKEN }}
       INBOUND_EMAIL_SECRET: ${{ secrets.INBOUND_EMAIL_SECRET }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
       WRANGLER_SEND_METRICS: "false"
     steps:
       - name: Check Cloudflare credentials

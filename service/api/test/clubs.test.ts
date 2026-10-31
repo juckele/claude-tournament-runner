@@ -176,6 +176,11 @@ describe("billing", () => {
     expect((await stripeWebhook(once)).body.duplicate).toBe(true);
   });
 
+  it("lists what each plan includes", async () => {
+    const r = expectStatus(await api("GET", "/plans"), 200);
+    expect(r).toMatchObject({ billing: true, checkout: true, plans: { free: { max_players: 24, auto_advance: false }, club: { auto_advance: true } } });
+  });
+
   it("is unlimited when billing is off (self-hosted)", async () => {
     expect(await livePlan({ ...(env as any), BILLING: undefined }, { club_id: null })).toBe("unlimited");
     expect(await livePlan({ ...(env as any), BILLING: "on" }, { club_id: null })).toBe("free");

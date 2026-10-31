@@ -96,6 +96,15 @@ clubs.post("/clubs", async (c) => {
   return c.json(await clubJson(c.env, club, role), 201);
 });
 
+/** What each plan includes, and whether this service charges at all. Public. */
+clubs.get("/plans", (c) =>
+  c.json({
+    billing: billingOn(c.env),
+    checkout: billingOn(c.env) && (stripeConfigured(c.env) || c.env.DEV_MODE === "1"),
+    plans: billingOn(c.env) ? { free: LIMITS.free, club: LIMITS.club, event_pass: LIMITS.event_pass } : { unlimited: LIMITS.unlimited },
+  }),
+);
+
 clubs.get("/clubs", async (c) => {
   const uid = requireUser(c.get("p"));
   const rows = (await c.env.DB.prepare(

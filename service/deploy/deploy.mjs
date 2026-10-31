@@ -16,7 +16,8 @@
 // Optional environment: PUBLIC_URL (custom domain; otherwise the workers.dev address), EMAIL_FROM,
 // ANDROID_APP_ID, ANDROID_CERT_SHA256, CORS_ORIGINS, and the secrets RESEND_API_KEY,
 // TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM, FCM_SERVICE_ACCOUNT, CHANNEL_TOKEN,
-// INBOUND_EMAIL_SECRET.
+// INBOUND_EMAIL_SECRET. Paid plans: BILLING=on, STRIPE_PRICE_CLUB_MONTHLY, STRIPE_PRICE_CLUB_YEARLY,
+// STRIPE_PRICE_EVENT_PASS, and the secrets STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET.
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -28,7 +29,7 @@ const API = join(SERVICE, "api");
 const ENGINE = join(SERVICE, "engine");
 const WEB = join(SERVICE, "web");
 
-const OPTIONAL_SECRETS = ["RESEND_API_KEY", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM", "FCM_SERVICE_ACCOUNT", "CHANNEL_TOKEN", "INBOUND_EMAIL_SECRET"];
+const OPTIONAL_SECRETS = ["RESEND_API_KEY", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM", "FCM_SERVICE_ACCOUNT", "CHANNEL_TOKEN", "INBOUND_EMAIL_SECRET", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"];
 
 export function names(envName) {
   const sfx = envName === "production" ? "" : `-${envName}`;
@@ -55,6 +56,9 @@ export function apiConfig({ envName, databaseId, publicUrl, vars = {} }) {
       ...(vars.ANDROID_APP_ID ? { ANDROID_APP_ID: vars.ANDROID_APP_ID } : {}),
       ...(vars.ANDROID_CERT_SHA256 ? { ANDROID_CERT_SHA256: vars.ANDROID_CERT_SHA256 } : {}),
       ...(vars.CORS_ORIGINS ? { CORS_ORIGINS: vars.CORS_ORIGINS } : {}),
+      // Paid plans: off unless BILLING=on. Prices are Stripe price ids (not secret).
+      ...(vars.BILLING === "on" ? { BILLING: "on" } : {}),
+      ...Object.fromEntries(["STRIPE_PRICE_CLUB_MONTHLY", "STRIPE_PRICE_CLUB_YEARLY", "STRIPE_PRICE_EVENT_PASS"].filter((k) => vars[k]).map((k) => [k, vars[k]])),
     },
     d1_databases: [{ binding: "DB", database_name: n.db, database_id: databaseId, migrations_dir: "migrations" }],
     queues: {
