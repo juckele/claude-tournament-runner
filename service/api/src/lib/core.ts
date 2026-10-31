@@ -4,6 +4,9 @@ export interface Env {
   DB: D1Database;
   OUTBOX?: Queue<OutboxMessage>;
   ENGINE: Fetcher;
+  /** Local development only: call the engine over HTTP instead of the service binding. */
+  ENGINE_URL?: string;
+  ASSETS?: Fetcher;
   PUBLIC_URL: string;
   EMAIL_FROM: string;
   DEV_MODE?: string;

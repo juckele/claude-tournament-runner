@@ -10,6 +10,17 @@ There are two Cloudflare Workers:
 
 Live events and `pairlab` studies run the same pairing and ranking code.
 
+The **web app** ([`web/`](web/)) is a React single-page app for phones and
+desktops. The API Worker serves it as static assets, so the app and the API
+share an origin and there's no CORS to configure. Every path except `/v1/*`
+falls back to the app.
+
+| Who | What they do in the web app |
+|---|---|
+| Players | Sign in with an emailed link or a texted code; join; see their board, opponent and side; report or change a result; confirm an opponent's report; claim a no-show; dispute a result; suggest a time; set availability, byes and how they're contacted; withdraw. |
+| Directors | Create a tournament; open registration; preview and publish pairings; see which games block the next round and why; rule on disputes; accept or reject claims; approve, add, import, seed, penalise, withdraw or disqualify players; re-pair or undo a round; message everyone; manage settings, directors and webhooks; export. |
+| Anyone with a report link | Report that one game without signing in. |
+
 ## Layout
 
 ```
@@ -31,10 +42,17 @@ api/
     inbound.ts               SMS/email command grammar
     tx.ts                    D1 batch unit of work + optimistic-concurrency guards + events
   test/                      vitest on workerd with real D1; ENGINE is backed by the real Python engine
+web/
+  src/api.ts                 API client (session token in localStorage, report-link tokens, idempotency keys)
+  src/pages/                 sign-in, home, new tournament, profile; per tournament: my games, pairings,
+                             standings, players, desk (directors), settings, log, match, my entry
+  src/styles.css             design tokens and layout (mobile: bottom tabs; desktop: left rail)
+  e2e/smoke.mjs              Playwright run of a whole event
 engine/
   src/engine.py              pure snapshot → pairlab State → pairings / rankings
   src/entry.py               Python Worker entrypoint
   cli.py                     run the engine from the shell (used by the API tests)
+  devserver.py               HTTP wrapper for local development (ENGINE_URL)
   build.sh                   vendors ../../pairlab into src/ before deploying
   tests/test_engine.py
 ```
@@ -53,11 +71,27 @@ enqueued on the `OUTBOX` queue for notifications and webhooks.
 ## Running locally
 
 ```
-cd api
-npm install --legacy-peer-deps
-npm test                       # 16 integration tests (workerd + D1 + real engine via python3)
-npm run typecheck
-cd ../engine && python3 -m pytest -q tests
+(cd api && npm install --legacy-peer-deps)
+(cd web && npm install --legacy-peer-deps)
+./dev.sh                       # engine on :8788, API + built web app on http://127.0.0.1:8787
+```
+
+`dev.sh` applies the D1 migrations locally and starts `wrangler dev` with
+`DEV_MODE=1`. It also sets `ENGINE_URL`, which makes the API call the engine
+over HTTP (`engine/devserver.py`) instead of through the service binding. For
+hot reload while working on the app, also run `cd web && npm run dev` and open
+http://localhost:5173 (it proxies `/v1` to :8787). Rebuilding `web/dist` while
+`wrangler dev` is running can leave it serving stale assets, so restart
+`dev.sh` after a production build.
+
+Tests:
+
+```
+cd api && npm test             # 16 integration tests (workerd + D1 + real engine via python3)
+cd engine && python3 -m pytest -q tests
+cd web && npm run e2e          # browser run against ./dev.sh: a director on desktop and
+                               # players on phones go from sign-in to final standings;
+                               # screenshots land in web/e2e/out/
 ```
 
 The API tests need `python3` with the repo's `requirements.txt` installed,
@@ -77,7 +111,8 @@ cd api && npm run db:migrate
 # engine (Python Worker)
 cd engine && ./build.sh && uv run pywrangler deploy
 
-# API
+# API + web app
+(cd web && npm run build)
 cd api
 wrangler secret put LINK_SECRET           # signs one-tap report links and calendar keys
 wrangler secret put CHANNEL_TOKEN         # optional: external channel adapters

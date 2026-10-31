@@ -130,7 +130,7 @@ entrants.get("/tournaments/:t/entrants/:e/matches", async (c) => {
     matches: ms.map((m) => {
       const mine = m.latest.get(e.id);
       return {
-        ...matchJson(m, a.settings, { names }),
+        ...matchJson(m, a.settings, { names, reports: true }),
         my_seat: m.seats.indexOf(e.id),
         my_report: mine ? { revision: mine.revision, result: parseJson(mine.result, null), retracted: !!mine.retracted, created_at: mine.created_at } : null,
       };

@@ -21,7 +21,7 @@ async function challenge(c: any, kind: "email" | "phone", value: string, purpose
     "INSERT INTO auth_challenges (id, kind, value, secret_hash, purpose, contact_id, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   ).bind(newId("chl"), kind, value, await sha256(`${kind}:${value}:${secret}`), purpose, contactId, new Date(Date.now() + CHALLENGE_MINUTES * 60e3).toISOString(), t).run();
   if (kind === "email") {
-    const link = `${env.PUBLIC_URL}/v1/auth/verify?email=${encodeURIComponent(value)}&token=${secret}`;
+    const link = `${env.PUBLIC_URL}/sign-in/verify?email=${encodeURIComponent(value)}&token=${secret}`;
     await sendDirect(env, c.executionCtx, "email", value, purpose === "login" ? "Your sign-in link" : "Confirm your email",
       `Sign in: ${link}\n\nOr paste this code: ${secret}\nIt expires in ${CHALLENGE_MINUTES} minutes.`);
   } else {

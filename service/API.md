@@ -558,6 +558,14 @@ What the Worker in `service/api` settled that this spec left open:
   claim. `@<code>` (the last 6 characters of the tournament id) picks a tournament.
 - **Engine contract.** The ENGINE binding serves `POST /pair`, `POST /rank`
   and `GET /systems`; see `service/engine/src/engine.py`.
+- **Web app support.** `GET /v1/systems` lists the available pairing and ranking
+  systems. Owners can grant a role by email or phone with
+  `POST …/roles {email | phone | user_id, role}`.
+  `GET /tournaments/{t}?invite=CODE` shows a private tournament to someone
+  holding an invite. A player's `…/entrants/{e}/matches` includes the reports
+  on their games. Sign-in links point at the app (`/sign-in/verify`) and report
+  links at `/t/{t}/m/{m}?t=…`. The API serves the web app for every path
+  outside `/v1/*`.
 - **Notifications.** Kinds are `pairings`, `reports`, `contested`, `results`,
   `announcements` and `reminders`. Email goes through Resend, SMS through
   Twilio; without credentials, messages are only logged (`deliveries.status = logged`).

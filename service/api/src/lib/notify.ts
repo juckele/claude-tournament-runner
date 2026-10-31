@@ -91,7 +91,7 @@ async function directors(env: Env, tid: string): Promise<Recipient[]> {
 }
 
 function matchUrl(env: Env, tid: string, mid: string, token: string | null) {
-  return `${env.PUBLIC_URL}/v1/tournaments/${tid}/matches/${mid}${token ? `?t=${encodeURIComponent(token)}` : ""}`;
+  return `${env.PUBLIC_URL}/t/${tid}/m/${mid}${token ? `?t=${encodeURIComponent(token)}` : ""}`;
 }
 
 async function notifyPlayers(env: Env, t: TournamentRow, s: Settings, ev: any) {
