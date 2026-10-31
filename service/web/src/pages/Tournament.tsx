@@ -63,6 +63,8 @@ export function TournamentRoutes() {
     entrants: eq.data?.entrants ?? [], names, reloadEntrants: eq.reload, viaLink,
   };
   const keep = viaLink ? `?t=${encodeURIComponent(link!)}` : "";
+  // Someone who can only see a private tournament through a sign-up link: show the join page alone.
+  const outsider = t.visibility === "private" && !t.my_role && !t.my_entrant_id && !viaLink;
   const tabs = [
     { to: "", label: "My games", icon: <IconGame />, end: true, show: !viaLink },
     { to: "pairings", label: "Pairings", icon: <IconPairings />, show: true },
@@ -84,15 +86,15 @@ export function TournamentRoutes() {
           {t.my_role ? <span>You're {t.my_role === "owner" ? "the owner" : `a ${t.my_role}`}</span> : null}
         </div>
       </div>
-      <div className="t-layout">
-        <nav className="tabs" aria-label="Tournament">
+      <div className={`t-layout ${outsider ? "t-layout-solo" : ""}`}>
+        {outsider ? null : <nav className="tabs" aria-label="Tournament">
           {tabs.map((x) => (
             <NavLink key={x.to} to={`/t/${t.id}${x.to ? `/${x.to}` : ""}${keep}`} end={x.end}>
               {x.icon}
               <span>{x.label}</span>
             </NavLink>
           ))}
-        </nav>
+        </nav>}
         <div>
           {t.status === "cancelled" ? (
             <div className="note note-warn" style={{ marginBottom: 18 }}>

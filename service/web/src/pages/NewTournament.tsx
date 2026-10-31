@@ -82,6 +82,7 @@ export function NewTournament() {
             </select>
           </Field>
         </div>
+        {f.visibility === "private" ? <p className="note note-info small">Players join with a sign-up QR code or link you make on the Desk. Nobody else can find or open it.</p> : null}
         <p className="small muted">It starts as a draft. You can change everything until round 1 is paired.</p>
         <Button kind="primary" busy={busy} type="submit">Create tournament</Button>
       </form>

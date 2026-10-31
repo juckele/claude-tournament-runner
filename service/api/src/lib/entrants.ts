@@ -67,6 +67,7 @@ export async function signUp(env: Env, a: Access, body: any, tx = new Tx(env, a.
   body = isObj(body) ? body : {};
   const s = a.settings;
   const forOther = a.isTD && (body.user_id || body.name || body.contacts);
+  let inviteCode: string | null = null;
   let userId: string;
   let name: string;
   if (forOther) {
@@ -93,11 +94,18 @@ export async function signUp(env: Env, a: Access, body: any, tx = new Tx(env, a.
   if (status === "cancelled" || status === "complete") throw invalidState(`the tournament is ${status}`);
   if (!a.isTD) {
     if (status !== "registration" || !a.t.registration_open) throw invalidState("registration is closed");
-    if (s.registration.mode === "invite") {
+    // Invite-only registration, or a private tournament the caller can only see through an
+    // invite: either way the sign-up spends one use of that invite.
+    if (s.registration.mode === "invite" || a.viaInvite) {
       const code = typeof body.invite === "string" ? body.invite : "";
       const inv = await env.DB.prepare("SELECT * FROM invites WHERE code = ? AND tournament_id = ?").bind(code, a.t.id).first<any>();
-      if (!inv || (inv.expires_at && inv.expires_at < now()) || inv.uses_left === 0) throw forbidden("a valid invite code is required");
-      if (inv.uses_left != null) tx.add("UPDATE invites SET uses_left = uses_left - 1 WHERE code = ?", code);
+      if (!inv || (inv.expires_at && inv.expires_at < now()) || inv.uses_left === 0) throw forbidden("this sign-up link has expired or been used up; ask the director for a new one");
+      if (inv.uses_left != null) {
+        // Two people racing for the last use: the guard fails the second batch.
+        tx.guard("SELECT uses_left > 0 FROM invites WHERE code = ?", code);
+        tx.add("UPDATE invites SET uses_left = uses_left - 1 WHERE code = ?", code);
+      }
+      inviteCode = code;
     }
   }
   if (s.registration.max_entrants != null) {
@@ -111,10 +119,10 @@ export async function signUp(env: Env, a: Access, body: any, tx = new Tx(env, a.
   const rating = a.isTD && typeof body.rating === "number" ? body.rating : null;
   if (existing) tx.add("DELETE FROM entrants WHERE id = ?", existing.id);
   tx.add(
-    `INSERT INTO entrants (id, tournament_id, user_id, display_name, status, seed, rating, availability, max_games_per_round, contact_prefs, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO entrants (id, tournament_id, user_id, display_name, status, seed, rating, availability, max_games_per_round, contact_prefs, invite_code, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id, a.t.id, userId, name, st, seed, rating, JSON.stringify(roundList(body.availability ?? [])),
-    Number.isInteger(body.max_games_per_round) ? body.max_games_per_round : null, JSON.stringify(isObj(body.contact_prefs) ? body.contact_prefs : {}), t, t,
+    Number.isInteger(body.max_games_per_round) ? body.max_games_per_round : null, JSON.stringify(isObj(body.contact_prefs) ? body.contact_prefs : {}), inviteCode, t, t,
   );
   tx.event("entrant.registered", a.t.id, { entrant_id: id }, { status: st, by_director: !!forOther });
   if (commit) await tx.commit();

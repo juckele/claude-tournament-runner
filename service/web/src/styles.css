@@ -323,3 +323,23 @@ tr.ineligible td { color: var(--ink-3); }
 @media (min-width: 900px) { .save-bar { bottom: 0; margin: 0; padding: 12px 0; } }
 .toggle { min-height: 44px; }
 .toggle[aria-pressed="true"] { border-color: var(--ink); background: var(--sunk); box-shadow: inset 0 0 0 1px var(--ink); }
+
+/* ------------------------------------------------------------ QR codes and the printable poster */
+.qr { background: #fff; border-radius: var(--r-s); line-height: 0; }
+.qr svg { width: 100%; height: 100%; display: block; }
+.qr-thumb { border: 1.5px solid var(--rule); background: #fff; border-radius: var(--r-s); padding: 0; cursor: pointer; line-height: 0; }
+.qr-thumb:hover { border-color: var(--ink-3); }
+.poster { min-height: 100dvh; display: grid; justify-items: center; align-content: center; gap: 18px; padding: 40px var(--pad); text-align: center; background: #fff; color: #16202e; }
+.poster-kicker { font-size: 1.25rem; color: #4a5768; }
+.poster-title { font-size: clamp(2.6rem, 9vw, 4.6rem); font-weight: 900; font-variation-settings: "wdth" 66; line-height: 0.95; max-width: 16ch; }
+.poster .qr { width: min(420px, 80vw) !important; height: auto !important; aspect-ratio: 1; }
+.poster-cta { font-size: 2rem; font-weight: 800; font-variation-settings: "wdth" 75; }
+.poster-url { font-size: 0.95rem; color: #4a5768; overflow-wrap: anywhere; max-width: 60ch; }
+.poster-desc { max-width: 60ch; white-space: pre-wrap; color: #4a5768; }
+.poster-actions { position: fixed; top: 16px; right: 16px; }
+@media print {
+  .no-print { display: none !important; }
+  .poster { min-height: auto; padding: 0; }
+  @page { margin: 18mm; }
+}
+.t-layout.t-layout-solo { display: block; max-width: 640px; }
