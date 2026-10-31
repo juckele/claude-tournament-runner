@@ -35,11 +35,11 @@ describe("account deletion", () => {
 
     // Other players' results stand; the name is gone; their round-2 game was voided.
     const ent = expectStatus(await api("GET", `/tournaments/${t.id}/entrants/${leaving.entrant.id}`, { token: td.token }), 200);
-    expect(ent).toMatchObject({ display_name: "Deleted player", status: "withdrawn" });
+    expect(ent).toMatchObject({ display_name: "Deleted Player #1", status: "withdrawn" });
     expect(ent.contacts).toEqual([]);
     const old = expectStatus(await api("GET", `/tournaments/${t.id}/matches/${mine.id}`, { token: td.token }), 200);
     expect(old.status).toBe("resolved");
-    expect(old.seats.map((s: any) => s.name)).toContain("Deleted player");
+    expect(old.seats.map((s: any) => s.name)).toContain("Deleted Player #1");
     const notes = expectStatus(await api("GET", `/tournaments/${t.id}/matches/${mine.id}/comments`, { token: td.token }), 200).comments;
     expect(notes[0].body).toBe("[deleted]");
     const r2 = expectStatus(await api("GET", `/tournaments/${t.id}/rounds/2`, { token: td.token }), 200).matches;
@@ -77,5 +77,38 @@ describe("account deletion", () => {
     expect((await api("GET", `/tournaments/${draft.id}`, { token: heir.token })).status).toBe(404);
     const roles = expectStatus(await api("GET", `/tournaments/${live.id}/roles`, { token: heir.token }), 200).roles;
     expect(roles.map((r: any) => r.user_id)).toEqual([heir.user.id]);
+  });
+
+  it("numbers deleted players within each tournament so their games stay readable", async () => {
+    const { td, t, players } = await setup(4, { format: { rounds: 2 } });
+    // Seeds 1-4: round 1 is P1 v P3 and P2 v P4.
+    for (const [i, p] of players.entries())
+      expectStatus(await api("PATCH", `/tournaments/${t.id}/entrants/${p.entrant.id}`, { token: td.token, body: { seed: i + 1 } }), 200);
+    // P3 is also in a second event, alone among deleted players there.
+    const other = expectStatus(await api("POST", "/tournaments", { token: td.token, body: { name: "Other", visibility: "unlisted" } }), 201);
+    expectStatus(await api("POST", `/tournaments/${other.id}/open-registration`, { token: td.token }), 200);
+    for (const p of [players[2], players[3]]) expectStatus(await api("POST", `/tournaments/${other.id}/entrants`, { token: p.token, body: {} }), 201);
+    expectStatus(await api("POST", `/tournaments/${other.id}/start`, { token: td.token }), 200);
+
+    expectStatus(await api("POST", `/tournaments/${t.id}/start`, { token: td.token }), 200);
+    const [g] = expectStatus(await api("GET", `/tournaments/${t.id}/rounds/1`, { token: td.token }), 200).matches;
+    expect(g.seats.map((s: any) => s.entrant_id).sort()).toEqual([players[0].entrant.id, players[2].entrant.id].sort());
+    expectStatus(await api("PUT", `/tournaments/${t.id}/matches/${g.id}/ruling`, { token: td.token, body: { result: { placements: [1, 2] }, reason: "sheet" } }), 200);
+
+    for (const p of [players[0], players[2]]) expectStatus(await api("DELETE", "/me", { token: p.token, body: CONFIRM }), 200);
+
+    const names = (await api("GET", `/tournaments/${t.id}/matches/${g.id}`, { token: td.token })).body.seats.map((s: any) => s.name).sort();
+    expect(names).toEqual(["Deleted Player #1", "Deleted Player #2"]);
+    const ents = expectStatus(await api("GET", `/tournaments/${t.id}/entrants`, { token: td.token }), 200).entrants;
+    expect(ents.find((e: any) => e.id === players[0].entrant.id).display_name).toBe("Deleted Player #1");
+    expect(ents.find((e: any) => e.id === players[2].entrant.id).display_name).toBe("Deleted Player #2");
+    // Numbering is per tournament.
+    const otherEnts = expectStatus(await api("GET", `/tournaments/${other.id}/entrants`, { token: td.token }), 200).entrants;
+    expect(otherEnts.map((e: any) => e.display_name).sort()).toEqual(["Deleted Player #1", players[3].entrant.display_name].sort());
+
+    // Nobody else can take one of these names.
+    expect((await api("PATCH", "/me", { token: players[1].token, body: { display_name: "deleted player #3" } })).status).toBe(400);
+    expect((await api("PATCH", `/tournaments/${t.id}/entrants/me`, { token: players[1].token, body: { display_name: "Deleted Player" } })).status).toBe(400);
+    expect((await api("POST", `/tournaments/${t.id}/entrants`, { token: td.token, body: { name: "Deleted Player #9" } })).status).toBe(400);
   });
 });

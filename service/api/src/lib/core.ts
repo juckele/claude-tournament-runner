@@ -173,6 +173,13 @@ export function merge(base: any, patch: any): any {
   return out;
 }
 
+/** Names like "Deleted Player #2" label deleted accounts; nobody else may use them. */
+export const DELETED_PREFIX = "Deleted Player";
+export function checkDisplayName(name: string): string {
+  if (/^\s*deleted\s+player\b/i.test(name)) throw bad(`"${DELETED_PREFIX}" names are reserved for deleted accounts`);
+  return name;
+}
+
 export function normaliseEmail(v: unknown): string {
   if (typeof v !== "string" || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim())) throw bad("a valid email address is required");
   return v.trim().toLowerCase();

@@ -581,7 +581,8 @@ What the Worker in `service/api` settled that this spec left open:
 - **Account deletion.** `DELETE /me {confirm: "delete my account"}`, from a
   session only. It removes contact points, sessions, tokens, devices, sign-in
   codes and deliveries, and blanks notes and comments. Live entries are
-  withdrawn, and the person shows as "Deleted player" in past games. Draft
+  withdrawn, and the person shows as "Deleted Player #N" in past games (numbered
+  per tournament; live players can't use these names). Draft
   tournaments they own alone are deleted. Live ones they own alone block it
   with `409 sole_owner`.
 - **Live updates.** `POST /tournaments/{t}/live` returns a 2-minute ticket and a

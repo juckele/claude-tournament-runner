@@ -174,7 +174,7 @@ try {
   await confirm.click();
   await ada.page.waitForURL(/\/sign-in/);
   await td.page.goto(`${BASE}/t/${tid}/standings`);
-  await td.page.getByRole("cell", { name: /Deleted player/ }).waitFor();
+  await td.page.getByRole("cell", { name: /Deleted Player #1/ }).waitFor();
   await td.page.getByRole("cell", { name: /^Ada/ }).waitFor({ state: "detached" });
 
   await ada.page.goto(`${BASE}/sign-in`);

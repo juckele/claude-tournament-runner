@@ -251,7 +251,10 @@ session only, not an API token; Profile → Delete account in the app does this.
 - **Live tournaments:** they're withdrawn, and unplayed games are voided as each
   tournament's rules say.
 - **Finished games:** these stay, so other players' results and standings don't
-  change, but the name shows as "Deleted player". The user row stays as an
+  change. In each tournament the name becomes "Deleted Player #N", numbered in
+  the order people leave. The number is stored once and never reused or
+  changed, so games between two deleted players stay readable. Live players
+  can't pick names that start "Deleted Player". The user row stays as an
   anonymous tombstone.
 - **Tournaments they own alone:** drafts are deleted. Finished or cancelled
   ones stay as archives. A tournament that's still live blocks deletion

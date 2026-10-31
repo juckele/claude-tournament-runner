@@ -1,19 +1,19 @@
 // Account deletion (DELETE /me).
 //
 // Personal data goes: contact points, sessions, API tokens, phones, sign-in codes, delivery
-// records addressed to them, their notes and comments. Their name becomes "Deleted player"
-// everywhere. Live entries are withdrawn first (unplayed games voided as each tournament's
+// records addressed to them, their notes and comments. In each tournament their name becomes
+// "Deleted Player #N", numbered within that tournament. Live entries are withdrawn first (unplayed games voided as each tournament's
 // rules say). The user row stays as an anonymous tombstone so other players' games,
 // standings and the audit log keep their shape.
 //
 // Tournaments they own alone: drafts are deleted with the account; finished or cancelled ones
 // stay as archives; anything still live blocks deletion until ownership is handed over.
 import { Access, Principal, TournamentRow } from "./auth";
-import { ApiError, Env, forbidden, now, parseJson } from "./core";
+import { ApiError, DELETED_PREFIX, Env, forbidden, now, parseJson } from "./core";
 import type { Settings } from "./settings";
 import { withdrawEntrant } from "./entrants";
 
-export const DELETED_NAME = "Deleted player";
+export const DELETED_NAME = DELETED_PREFIX;
 
 export async function deleteAccount(env: Env, p: Principal) {
   if (p.kind !== "user" || !p.user_id) throw forbidden("sign in on this device to delete your account");
@@ -63,8 +63,14 @@ export async function deleteAccount(env: Env, p: Principal) {
   // Entries that never played (registration) disappear; the rest keep their games, anonymously.
   add(`DELETE FROM entrants WHERE user_id = ? AND NOT EXISTS (SELECT 1 FROM match_seats s WHERE s.entrant_id = entrants.id)
        AND tournament_id IN (SELECT id FROM tournaments WHERE status IN ('draft', 'registration'))`, uid);
-  add(`UPDATE entrants SET display_name = ?, contact_prefs = '{}', status_reason = NULL, invite_code = NULL,
-       version = version + 1, updated_at = ? WHERE user_id = ?`, DELETED_NAME, t, uid);
+  // Each deleted player gets the next number in that tournament ("Deleted Player #1", "#2", …) so
+  // match history between deleted players stays readable. Numbers are never reused or changed;
+  // D1 runs this batch alone, so two deletions can't take the same number.
+  add(`UPDATE entrants SET
+         display_name = ? || ' #' || (1 + COALESCE((SELECT MAX(CAST(SUBSTR(o.display_name, ?) AS INTEGER)) FROM entrants o
+                                                    WHERE o.tournament_id = entrants.tournament_id AND o.display_name LIKE ? || ' #%'), 0)),
+         contact_prefs = '{}', status_reason = NULL, invite_code = NULL, version = version + 1, updated_at = ?
+       WHERE user_id = ?`, DELETED_PREFIX, DELETED_PREFIX.length + 3, DELETED_PREFIX, t, uid);
   add("UPDATE comments SET body = '[deleted]' WHERE author_user_id = ?", uid);
   add("UPDATE report_revisions SET note = NULL WHERE actor_user_id = ?", uid);
   add("UPDATE tournaments SET transfer_to = NULL WHERE transfer_to = ?", uid);

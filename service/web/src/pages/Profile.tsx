@@ -131,7 +131,7 @@ function DeleteAccount() {
   return (
     <Section title="Delete your account">
       <div className="panel stack">
-        <p>This removes your email addresses, phone numbers, sign-ins, API tokens and notes. You're withdrawn from tournaments that are still running. Games you've already played stay in other players' results, under the name "Deleted player".</p>
+        <p>This removes your email addresses, phone numbers, sign-ins, API tokens and notes. You're withdrawn from tournaments that are still running. Games you've already played stay in other players' results, with your name replaced by a numbered label like "Deleted Player #1".</p>
         <Button kind="danger" style={{ justifySelf: "start" }} onClick={() => { setOpen(true); setTyped(""); setBlocked(null); }}>Delete account</Button>
       </div>
       <Dialog open={open} onClose={() => setOpen(false)} title="Delete your account?">

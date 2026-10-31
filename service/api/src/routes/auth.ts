@@ -1,7 +1,7 @@
 // /auth/* and /me/* (API.md §5.1).
 import { Hono } from "hono";
 import { createSession, requireUser } from "../lib/auth";
-import { ApiError, bad, invalidState, isObj, newId, normaliseEmail, normalisePhone, notFound, now, randomDigits, randomToken, sha256 } from "../lib/core";
+import { ApiError, bad, checkDisplayName, invalidState, isObj, newId, normaliseEmail, normalisePhone, notFound, now, randomDigits, randomToken, sha256 } from "../lib/core";
 import { deleteAccount } from "../lib/account";
 import { sendDirect } from "../lib/notify";
 import type { H } from "../http";
@@ -116,6 +116,7 @@ auth.patch("/me", async (c) => {
   if (!isObj(body)) throw bad("body must be an object");
   if (body.display_name !== undefined) {
     if (typeof body.display_name !== "string" || !body.display_name.trim()) throw bad("display_name must be a non-empty string");
+    checkDisplayName(body.display_name);
     await c.env.DB.prepare("UPDATE users SET display_name = ? WHERE id = ?").bind(body.display_name.trim().slice(0, 100), uid).run();
   }
   return c.json(await meJson(c.env.DB, uid));
