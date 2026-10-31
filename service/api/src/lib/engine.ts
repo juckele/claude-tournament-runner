@@ -9,7 +9,8 @@ import type { Settings } from "./settings";
 async function call<T>(env: Env, path: string, body: unknown): Promise<T> {
   let res: Response;
   try {
-    res = await env.ENGINE.fetch(`https://engine${path}`, {
+    const url = env.ENGINE_URL ? `${env.ENGINE_URL.replace(/\/$/, "")}${path}` : `https://engine${path}`;
+    res = await (env.ENGINE_URL ? fetch : env.ENGINE.fetch.bind(env.ENGINE))(url, {
       method: body === undefined ? "GET" : "POST",
       headers: { "content-type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),

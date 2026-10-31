@@ -36,3 +36,10 @@ service = "tournament-engine"
 
 [triggers]
 crons = ["*/15 * * * *"]   # expire no-show claims, flag overdue matches
+
+# The web app (service/web) is served from this Worker; /v1/* goes to the API first.
+[assets]
+directory = "../web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/v1/*"]

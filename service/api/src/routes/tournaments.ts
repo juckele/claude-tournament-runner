@@ -1,7 +1,7 @@
 // Tournaments: CRUD, lifecycle, roles, channels, webhooks, export, attention, batch ops (API.md §5.2, §5.7, §5.8).
 import { Hono } from "hono";
 import { Access, loadAccess, requireUser, Role, TournamentRow } from "../lib/auth";
-import { ApiError, bad, checkIfMatch, etag, forbidden, invalidState, isObj, newId, notFound, now, parseJson, randomToken } from "../lib/core";
+import { ApiError, bad, checkIfMatch, etag, forbidden, invalidState, isObj, newId, normaliseEmail, normalisePhone, notFound, now, parseJson, randomToken } from "../lib/core";
 import { engineSystems, parseSettings } from "../lib/engine";
 import { importEntrants } from "../lib/entrants";
 import { loadMatches, MatchModel, matchJson, requireSeated, Ruling } from "../lib/matches";
@@ -35,7 +35,8 @@ export function tournamentJson(t: TournamentRow, a?: Access) {
 }
 
 async function respondT(c: any, id: string, status = 200) {
-  const a = await loadAccess(c.env, c.get("p"), id);
+  // ?invite=CODE lets someone with an invite see a private tournament before joining.
+  const a = await loadAccess(c.env, c.get("p"), id, { invite: c.req.query("invite") || undefined });
   c.header("ETag", etag(a.t.version));
   return c.json(tournamentJson(a.t, a), status);
 }
@@ -288,7 +289,11 @@ async function nameMap(db: D1Database, tid: string) {
 tournaments.get("/tournaments/:t/roles", async (c) => {
   const a = await access(c);
   a.requireTD();
-  const r = await c.env.DB.prepare("SELECT g.user_id, g.role, u.display_name, g.created_at FROM role_grants g JOIN users u ON u.id = g.user_id WHERE g.tournament_id = ? ORDER BY g.created_at").bind(a.t.id).all();
+  const r = await c.env.DB.prepare(
+    `SELECT g.user_id, g.role, u.display_name, g.created_at,
+       (SELECT value FROM contacts WHERE user_id = g.user_id AND kind = 'email' ORDER BY created_at LIMIT 1) AS email
+     FROM role_grants g JOIN users u ON u.id = g.user_id WHERE g.tournament_id = ? ORDER BY g.created_at`,
+  ).bind(a.t.id).all();
   return c.json({ roles: r.results });
 });
 
@@ -317,6 +322,29 @@ tournaments.put("/tournaments/:t/roles", async (c) => {
   guardOwnerRemains(tx, a.t.id);
   await tx.commit();
   return c.json({ roles: b.roles });
+});
+
+/** Grant a role by email, phone or user id (directors rarely know user ids). */
+tournaments.post("/tournaments/:t/roles", async (c) => {
+  const a = await access(c);
+  a.requireOwner();
+  const b = await body(c);
+  if (!ROLES.includes(b.role)) throw bad("role must be owner, director or observer");
+  let userId: string | null = typeof b.user_id === "string" ? b.user_id : null;
+  if (!userId && (b.email || b.phone)) {
+    const [kind, value] = b.email ? ["email", normaliseEmail(b.email)] : ["phone", normalisePhone(b.phone)];
+    const row = await c.env.DB.prepare("SELECT user_id FROM contacts WHERE kind = ? AND value = ?").bind(kind, value).first<any>();
+    if (!row) throw new ApiError(404, "not_found", `nobody has signed in with that ${kind === "email" ? "email" : "phone number"} yet`);
+    userId = row.user_id;
+  }
+  if (!userId) throw bad("send {email | phone | user_id, role}");
+  const tx = new Tx(c.env, a.actor);
+  await stageGrant(tx, a, userId, b.role);
+  guardOwnerRemains(tx, a.t.id);
+  await tx.commit().catch((e) => {
+    throw e?.code === "conflict" ? invalidState("a tournament needs at least one owner") : e;
+  });
+  return c.json({ user_id: userId, role: b.role }, 201);
 });
 
 tournaments.put("/tournaments/:t/roles/:user", async (c) => {

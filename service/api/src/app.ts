@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { requireWriteScope, resolvePrincipal } from "./lib/auth";
 import type { H } from "./http";
 import { ApiError, now, problem } from "./lib/core";
+import { engineSystems } from "./lib/engine";
 import { auth } from "./routes/auth";
 import { entrants } from "./routes/entrants";
 import { inbound } from "./routes/inbound";
@@ -53,6 +54,7 @@ app.use("*", async (c, next) => {
 });
 
 app.get("/", (c) => c.json({ service: "tournament-api", version: 1, docs: "service/API.md" }));
+app.get("/systems", async (c) => c.json(await engineSystems(c.env)));
 
 app.route("/", auth);
 app.route("/", tournaments);
