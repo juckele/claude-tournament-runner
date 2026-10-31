@@ -80,12 +80,12 @@ describe("account deletion", () => {
   });
 
   it("numbers deleted players within each tournament so their games stay readable", async () => {
-    const { td, t, players } = await setup(4, { format: { rounds: 2 } });
+    const { td, t, players, club } = await setup(4, { format: { rounds: 2 } }, { plan: "club" });
     // Seeds 1-4: round 1 is P1 v P3 and P2 v P4.
     for (const [i, p] of players.entries())
       expectStatus(await api("PATCH", `/tournaments/${t.id}/entrants/${p.entrant.id}`, { token: td.token, body: { seed: i + 1 } }), 200);
     // P3 is also in a second event, alone among deleted players there.
-    const other = expectStatus(await api("POST", "/tournaments", { token: td.token, body: { name: "Other", visibility: "unlisted" } }), 201);
+    const other = expectStatus(await api("POST", "/tournaments", { token: td.token, body: { name: "Other", visibility: "unlisted", club_id: club!.id } }), 201);
     expectStatus(await api("POST", `/tournaments/${other.id}/open-registration`, { token: td.token }), 200);
     for (const p of [players[2], players[3]]) expectStatus(await api("POST", `/tournaments/${other.id}/entrants`, { token: p.token, body: {} }), 201);
     expectStatus(await api("POST", `/tournaments/${other.id}/start`, { token: td.token }), 200);

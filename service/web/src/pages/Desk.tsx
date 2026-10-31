@@ -1,8 +1,10 @@
-import { useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, download, Match, PUBLIC_ORIGIN } from "../api";
 import { describeResult, duration, when } from "../format";
 import { useAction, useApi, useToast } from "../hooks";
+import { planLabel, planLimitOf, PlanLimitDialog, UpgradeOptions } from "../plan";
+import { PlanLimitBody } from "../api";
 import { Board, Button, Dialog, Empty, ErrorNote, Field, Loading, Section, StatusPill } from "../ui";
 import { RulingForm } from "./Match";
 import { SignupLinks } from "./SignupLinks";
@@ -51,6 +53,15 @@ function Lifecycle({ att, reloadAtt }: { att: Attention | null; reloadAtt: () =>
   const [blocked, setBlocked] = useState<{ blocking: Blocker[]; ready_at: string | null } | null>(null);
   const [override, setOverride] = useState({ reported: false, scheduled: "block" });
   const [cancelling, setCancelling] = useState(false);
+  const [limit, setLimit] = useState<PlanLimitBody | null>(null);
+  const [q, setQ] = useSearchParams();
+  useEffect(() => {
+    if (q.get("upgraded")) {
+      toast("The event pass is on. This tournament has no plan limits.");
+      setQ({}, { replace: true });
+      reload();
+    }
+  }, []);
   const [reason, setReason] = useState("");
   const active = entrants.filter((e) => e.status === "active").length;
   const base = `/tournaments/${t.id}`;
@@ -78,8 +89,13 @@ function Lifecycle({ att, reloadAtt }: { att: Attention | null; reloadAtt: () =>
     }
   }
   async function previewStart() {
-    const r = await run(() => api("POST", `${base}/start?dry_run=true`, {}));
-    if (r) setPreview({ kind: "start", data: r });
+    try {
+      setPreview({ kind: "start", data: await api("POST", `${base}/start?dry_run=true`, {}) });
+    } catch (e) {
+      const l = planLimitOf(e);
+      if (l) setLimit(l);
+      else toast((e as ApiError).detail ?? String(e), "error");
+    }
   }
 
   const s = t.settings;
@@ -107,6 +123,12 @@ function Lifecycle({ att, reloadAtt }: { att: Attention | null; reloadAtt: () =>
                 : <Button busy={busy} onClick={() => post("open-registration", undefined, "Registration is open.")}>Reopen registration</Button>}
             </div>
             {active < 2 ? <p className="small muted">You need at least two players to start.</p> : null}
+            {t.plan?.billing && t.plan.limits.max_players != null && active > t.plan.limits.max_players ? (
+              <div className="note note-info small stack" style={{ gap: 8 }}>
+                <span>{planLabel[t.plan.plan]} tournaments start with up to {t.plan.limits.max_players} players. Upgrade to start with all {active}, or remove some.</span>
+                <UpgradeOptions t={t} compact />
+              </div>
+            ) : null}
           </>
         ) : null}
 
@@ -185,6 +207,7 @@ function Lifecycle({ att, reloadAtt }: { att: Attention | null; reloadAtt: () =>
         ) : null}
       </div>
 
+      <PlanLimitDialog limit={limit} t={t} onClose={() => setLimit(null)} />
       <Dialog open={!!preview} onClose={() => setPreview(null)} title={preview?.kind === "start" ? "Round 1 pairings" : preview?.data?.completes ? "Finish the tournament" : `Round ${t.current_round + 1} pairings`}>
         {preview ? (
           <div className="stack">

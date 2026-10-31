@@ -12,6 +12,7 @@ import { Access, Principal, TournamentRow } from "./auth";
 import { ApiError, DELETED_PREFIX, Env, forbidden, now, parseJson } from "./core";
 import type { Settings } from "./settings";
 import { withdrawEntrant } from "./entrants";
+import { PAID_STATUSES } from "./plans";
 
 export const DELETED_NAME = DELETED_PREFIX;
 
@@ -32,6 +33,20 @@ export async function deleteAccount(env: Env, p: Principal) {
     });
   const drafts = sole.filter((t) => t.status === "draft").map((t) => t.id);
 
+  // Clubs they're the only admin of: block if anyone else depends on the club; otherwise remove it.
+  const soleClubs = (await db.prepare(
+    `SELECT c.id, c.name, c.plan, c.plan_status, (SELECT COUNT(*) FROM club_members o WHERE o.club_id = c.id AND o.user_id != m.user_id) AS others
+     FROM club_members m JOIN clubs c ON c.id = m.club_id
+     WHERE m.user_id = ? AND m.role = 'admin'
+       AND NOT EXISTS (SELECT 1 FROM club_members o WHERE o.club_id = c.id AND o.role = 'admin' AND o.user_id != m.user_id)`,
+  ).bind(uid).all<{ id: string; name: string; plan: string; plan_status: string | null; others: number }>()).results;
+  const stuckClubs = soleClubs.filter((c) => c.others > 0 || (c.plan === "club" && PAID_STATUSES.includes(c.plan_status ?? "")));
+  if (stuckClubs.length)
+    throw new ApiError(409, "sole_club_admin", "you're the only admin of clubs that have other members or a paid plan; make someone else an admin, or cancel the plan, first", {
+      clubs: stuckClubs.map((c) => ({ id: c.id, name: c.name })),
+    });
+  const emptyClubs = soleClubs.map((c) => c.id);
+
   // 1. Leave live tournaments properly (voids unplayed games, tells the directors).
   const entries = (await db.prepare(
     "SELECT e.id, e.tournament_id, e.status, t.status AS t_status FROM entrants e JOIN tournaments t ON t.id = e.tournament_id WHERE e.user_id = ?",
@@ -51,6 +66,12 @@ export async function deleteAccount(env: Env, p: Principal) {
   const t = now();
   const stmts: D1PreparedStatement[] = [];
   const add = (sql: string, ...b: unknown[]) => stmts.push(db.prepare(sql).bind(...b));
+  for (const id of emptyClubs) {
+    add("UPDATE tournaments SET club_id = NULL WHERE club_id = ?", id);
+    add("DELETE FROM club_members WHERE club_id = ?", id);
+    add("DELETE FROM clubs WHERE id = ?", id);
+  }
+  add("DELETE FROM club_members WHERE user_id = ?", uid);
   for (const id of drafts) {
     add("DELETE FROM events WHERE tournament_id = ?", id);
     add("DELETE FROM entrants WHERE tournament_id = ?", id);

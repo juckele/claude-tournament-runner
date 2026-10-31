@@ -6,6 +6,7 @@ import type { H } from "./http";
 import { ApiError, now, problem } from "./lib/core";
 import { engineSystems } from "./lib/engine";
 import { auth } from "./routes/auth";
+import { clubs } from "./routes/clubs";
 import { entrants } from "./routes/entrants";
 import { inbound } from "./routes/inbound";
 import { live } from "./routes/live";
@@ -76,4 +77,5 @@ app.route("/", entrants);
 app.route("/", matches);
 app.route("/", inbound);
 app.route("/", live);
+app.route("/", clubs);
 

@@ -30,8 +30,16 @@ const td = await person("TD", { viewport: { width: 1280, height: 900 } });
 const a = await person("Ari", devices["Pixel 7"]);
 const b = await person("Bea", devices["iPhone 13"]);
 try {
-  step("director creates a 2-round event with auto-pairing");
-  await signIn(td, `td-${run}@example.com`, "/new");
+  step("director's club takes the Club plan (automatic pairing is a paid feature)");
+  await signIn(td, `td-${run}@example.com`, "/clubs");
+  await td.page.getByLabel("Club name").fill("Live Club");
+  await td.page.getByRole("button", { name: "Create club" }).click();
+  await td.page.getByRole("button", { name: "Get the Club plan, $10 a month" }).click();
+  await td.page.getByText("The Club plan is on.", { exact: false }).waitFor();
+
+  step("director creates a 2-round club event with auto-pairing");
+  await td.page.getByRole("link", { name: "New tournament" }).click();
+  await td.page.waitForURL(/\/new\?club=/);
   await td.page.getByLabel("Name", { exact: true }).fill("Live Night");
   await td.page.getByLabel("Rounds").fill("2");
   await td.page.getByLabel("Pair each round automatically").check();

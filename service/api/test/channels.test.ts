@@ -43,8 +43,8 @@ describe("command grammar", () => {
 
 describe("SMS and email channels", () => {
   it("lets players get games, report, confirm and withdraw by text and email", async () => {
-    const { td, t, players } = await setup(2, { format: { rounds: 1 } });
-    // SMS is off by default and owner-only to enable.
+    const { td, t, players } = await setup(2, { format: { rounds: 1 } }, { plan: "club" });
+    // SMS is off by default, owner-only to enable, and part of the Club plan.
     expectStatus(await api("PATCH", `/tournaments/${t.id}/channels`, { token: td.token, body: { sms: { enabled: true } } }), 200);
     const [p1, p2] = players;
     await addPhone(p1.token, "+15555550101");
@@ -100,7 +100,7 @@ describe("SMS and email channels", () => {
   });
 
   it("delivers pairing notifications to each player's enabled channels", async () => {
-    const { td, t, players } = await setup(2, { format: { rounds: 1 } });
+    const { td, t, players } = await setup(2, { format: { rounds: 1 } }, { plan: "club" });
     await addPhone(players[0].token, "+15555550111");
     // p1 opts out of email.
     expectStatus(await api("PATCH", `/tournaments/${t.id}/entrants/me`, { token: players[0].token, body: { contact_prefs: { email: false } } }), 200);
