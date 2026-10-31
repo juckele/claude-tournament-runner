@@ -46,7 +46,7 @@ try {
   await td.page.getByRole("link", { name: "New tournament" }).click();
   await td.page.getByLabel("Name", { exact: true }).fill("Thursday Club Night");
   await td.page.getByRole("textbox", { name: /^Game/ }).fill("Chess");
-  await td.page.getByLabel("Rounds").fill("2");
+  await td.page.getByRole("textbox", { name: /^Rounds/ }).fill("2");
   await td.page.getByLabel("Side names").fill("White, Black");
   await shot(td, "02-new-tournament");
   await td.page.getByRole("button", { name: "Create tournament" }).click();

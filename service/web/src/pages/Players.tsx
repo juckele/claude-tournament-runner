@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { api, Entrant } from "../api";
 import { useAction } from "../hooks";
+import { groupLetter } from "../stages";
 import { Button, Dialog, Empty, Field, Section } from "../ui";
 import { useT } from "./Tournament";
 
@@ -19,6 +20,8 @@ export function Players() {
   const [editing, setEditing] = useState<Entrant | null>(null);
   const active = entrants.filter((e) => e.status === "active").length;
   const pending = entrants.filter((e) => e.status === "pending_approval");
+  // Manual group draw: directors place players before round 1.
+  const placing = t.settings.format.groups?.assign === "manual" && !t.current_round;
 
   return (
     <>
@@ -44,9 +47,11 @@ export function Players() {
                   <strong>{e.display_name}</strong>
                   {e.id === t.my_entrant_id ? <span className="muted"> (you)</span> : null}
                   {e.seed != null ? <span className="muted small"> seed {e.seed}</span> : null}
+                  {e.group != null ? <span className="bk-group" style={{ marginLeft: 8 }}>Group {groupLetter(e.group)}</span> : null}
                   {td && e.contacts?.length ? <span className="muted small" style={{ display: "block" }}>{e.contacts.map((c) => c.value).join(", ")}</span> : null}
                 </span>
                 <span className={`tag ${e.status === "active" ? "tag-felt" : e.status === "pending_approval" || e.status === "disqualified" ? "tag-amber" : ""}`}>{statusLabel[e.status] ?? e.status}</span>
+                {td && placing && e.status === "active" ? <GroupPicker e={e} onDone={reloadEntrants} /> : null}
                 {td ? <Button kind="quiet" onClick={() => setEditing(e)} aria-label={`Manage ${e.display_name}`}>Manage</Button> : null}
               </li>
             ))}
@@ -183,5 +188,19 @@ function Manage({ e, onDone }: { e: Entrant; onDone: () => void }) {
       </div>
       <p className="small muted">Withdrawing cancels their unplayed games. Disqualifying follows the tournament's rule for their finished games.</p>
     </div>
+  );
+}
+
+function GroupPicker({ e, onDone }: { e: Entrant; onDone: () => void }) {
+  const { t, entrants } = useT();
+  const { busy, run } = useAction();
+  const g = t.settings.format.groups!;
+  const n = g.count ?? Math.max(1, Math.ceil(entrants.filter((x) => x.status === "active").length / (g.size ?? 4)));
+  return (
+    <select aria-label={`Group for ${e.display_name}`} style={{ width: "auto" }} disabled={busy} value={e.group ?? ""}
+      onChange={(ev) => run(async () => { await api("PATCH", `/tournaments/${t.id}/entrants/${e.id}`, { group: ev.target.value ? Number(ev.target.value) : null }); onDone(); })}>
+      <option value="">Any group</option>
+      {Array.from({ length: n }, (_, i) => <option key={i} value={i + 1}>Group {groupLetter(i + 1)}</option>)}
+    </select>
   );
 }

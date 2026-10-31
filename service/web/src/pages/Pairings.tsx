@@ -2,11 +2,12 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Match } from "../api";
 import { describeResult } from "../format";
 import { useApi } from "../hooks";
+import { groupLetter, roundTitle, stageOfRound } from "../stages";
 import { Board, Empty, ErrorNote, Loading, Section, StatusPill } from "../ui";
 import { useT } from "./Tournament";
 
 export function Pairings() {
-  const { t, viaLink } = useT();
+  const { t, viaLink, entrants } = useT();
   const { n } = useParams();
   const [params] = useSearchParams();
   const round = n ? Number(n) : t.current_round;
@@ -22,7 +23,7 @@ export function Pairings() {
 
   return (
     <Section
-      title={`Round ${round}`}
+      title={roundTitle(t, round)}
       actions={
         rounds.length > 1 ? (
           <nav className="round-picker" aria-label="Rounds">
@@ -39,8 +40,36 @@ export function Pairings() {
           <p className="muted small" style={{ marginBottom: 12 }}>
             {q.data.status === "closed" ? "This round is closed." : q.data.deadline ? `Report results by ${new Date(q.data.deadline).toLocaleString()}.` : "Report results as soon as your game ends."}
           </p>
+          {(() => {
+            const stage = stageOfRound(t, round);
+            const groupOf = new Map(entrants.map((e) => [e.id, e.group]));
+            const sets: [string | null, Match[]][] =
+              stage?.stage === "groups" && t.stages!.groups > 1
+                ? Array.from({ length: t.stages!.groups }, (_, i) => [`Group ${groupLetter(i + 1)}`, games.filter((m) => groupOf.get(m.seats[0].entrant_id) === i + 1)] as [string, Match[]]).filter(([, ms]) => ms.length)
+                : stage?.stage === "bracket"
+                  ? [[null, games.filter((m) => m.bracket?.tier !== "third")], ["Third place", games.filter((m) => m.bracket?.tier === "third")]]
+                  : [[null, games]];
+            return sets.filter(([, ms]) => ms.length).map(([label, ms]) => (
+              <div key={label ?? "all"}>
+                {label ? <h3 className="pairing-group">{label}</h3> : null}
+                <PairingList ms={ms} />
+              </div>
+            ));
+          })()}
+          {byes.length ? (
+            <p className="muted" style={{ marginTop: 14 }}>
+              {stageOfRound(t, round)?.stage === "bracket" ? "Through without playing" : "Sitting out"}: {byes.map((b) => `${b.seats[0].name}${b.bye_reason === "requested" ? " (requested)" : ""}`).join(", ")}
+            </p>
+          ) : null}
+        </>
+      ) : null}
+    </Section>
+  );
+
+  function PairingList({ ms }: { ms: Match[] }) {
+    return (
           <ol className="pairings">
-            {games.map((m) => {
+            {ms.map((m) => {
               const mine = m.seats.some((x) => x.entrant_id === t.my_entrant_id);
               return (
                 <li key={m.id}>
@@ -63,15 +92,8 @@ export function Pairings() {
               );
             })}
           </ol>
-          {byes.length ? (
-            <p className="muted" style={{ marginTop: 14 }}>
-              Sitting out: {byes.map((b) => `${b.seats[0].name}${b.bye_reason === "requested" ? " (requested)" : ""}`).join(", ")}
-            </p>
-          ) : null}
-        </>
-      ) : null}
-    </Section>
-  );
+    );
+  }
 }
 
 function winnerSeat(m: Match): number | null {

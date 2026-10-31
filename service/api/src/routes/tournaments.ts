@@ -6,6 +6,7 @@ import { engineSystems, parseSettings } from "../lib/engine";
 import { importEntrants } from "../lib/entrants";
 import { loadMatches, MatchModel, matchJson, requireSeated, Ruling } from "../lib/matches";
 import { advance, checkRound, recomputeStandings, startTournament } from "../lib/progress";
+import { bracketRoundName, bracketWinner, groupLetter, parsePlan, requireWinner, StagePlan, stageOf } from "../lib/stages";
 import { normaliseResult, seatOutcomes } from "../lib/results";
 import { effectivePlan, LIMITS, PlanLimit, planJson, PlanSource, requireFeature } from "../lib/plans";
 import { applySettingsPatch, defaultSettings, Settings, touchesOwnerOnly, validateSettings } from "../lib/settings";
@@ -48,7 +49,16 @@ export function tournamentJson(t: TournamentRow, a?: Access, extra: Record<strin
     ...(a?.isOwner && t.transfer_to ? { transfer_to: t.transfer_to } : {}),
     club_id: t.club_id ?? null,
     event_pass: !!t.event_pass,
+    ...(t.stage_plan ? { stages: stagesJson(JSON.parse(t.stage_plan), t.current_round) } : {}),
     ...extra,
+  };
+}
+
+function stagesJson(plan: StagePlan, current: number) {
+  return {
+    ...plan,
+    group_names: Array.from({ length: plan.groups }, (_, i) => groupLetter(i + 1)),
+    current: current ? stageOf(plan, current) : null,
   };
 }
 
@@ -248,8 +258,60 @@ tournaments.get("/tournaments/:t/standings", async (c) => {
     after_round: round,
     ranking: a.settings.format.ranking,
     final: a.t.status === "complete" && round === a.t.current_round,
+    ...(a.t.stage_plan ? { stages: stagesJson(JSON.parse(a.t.stage_plan), a.t.current_round) } : {}),
     standings: rows.map((r) => ({ rank: r.rank, entrant_id: r.entrant_id, points: r.points, ...parseJson(r.stats, {}), name: r.display_name, status: r.status })),
   });
+});
+
+/** The knockout bracket: every round, with drawn games and the players known for later ones. */
+tournaments.get("/tournaments/:t/bracket", async (c) => {
+  const a = await access(c);
+  if (!a.settings.format.bracket) throw notFound("bracket (this tournament has none)");
+  const plan = parsePlan(a.t.stage_plan);
+  if (!plan) return c.json({ drawn: false, rounds: [] });
+  const [all, ents] = await Promise.all([
+    loadMatches(c.env.DB, a.t.id),
+    c.env.DB.prepare("SELECT id, display_name, bracket_seed, group_no FROM entrants WHERE tournament_id = ?").bind(a.t.id).all<any>(),
+  ]);
+  const who = new Map(ents.results.map((e) => [e.id, e]));
+  const player = (id: string | null) => {
+    if (!id) return null;
+    const e = who.get(id);
+    return { entrant_id: id, name: e?.display_name, seed: e?.bracket_seed ?? null, group: e?.group_no ?? null };
+  };
+  const R = plan.bracket_rounds;
+  const winners: Map<number, string | null>[] = [];
+  const rounds = [];
+  for (let k = 1; k <= R; k++) {
+    const n = plan.group_rounds + k;
+    const here = all.filter((m) => m.row.round_number === n && m.row.bracket_pos != null);
+    const drawn = all.some((m) => m.row.round_number === n);
+    const w = new Map<number, string | null>();
+    const slots = [];
+    for (let p = 0; p < 2 ** (R - k); p++) {
+      const m = here.find((x) => x.row.bracket_pos === p && x.row.bracket_tier !== "third");
+      if (m) {
+        const settled = m.row.kind === "bye" || ["confirmed", "resolved", "void"].includes(m.row.status);
+        const win = settled ? bracketWinner(m, a.settings.game) : null;
+        w.set(p, win);
+        slots.push({ pos: p, match_id: m.row.id, kind: m.row.kind, status: m.row.status, result: m.result, seats: m.seats.map(player), winner: win });
+      } else {
+        // Not drawn yet: show whoever is already through to it.
+        const prev = winners[k - 2];
+        const feed = drawn || !prev ? [null, null] : [prev.get(2 * p) ?? null, prev.get(2 * p + 1) ?? null];
+        w.set(p, null);
+        slots.push({ pos: p, match_id: null, kind: null, status: null, result: null, seats: feed.map(player), winner: null });
+      }
+    }
+    winners.push(w);
+    const third = here.find((x) => x.row.bracket_tier === "third");
+    rounds.push({
+      bracket_round: k, round: n, name: bracketRoundName(k, R), drawn,
+      matches: slots,
+      ...(third ? { third_place: { match_id: third.row.id, status: third.row.status, result: third.result, seats: third.seats.map(player), winner: ["confirmed", "resolved"].includes(third.row.status) ? bracketWinner(third, a.settings.game) : null } } : {}),
+    });
+  }
+  return c.json({ drawn: all.some((m) => m.row.bracket_pos != null), size: plan.bracket_size, third_place: a.settings.format.bracket.third_place, rounds });
 });
 
 tournaments.get("/tournaments/:t/events", async (c) => {
@@ -745,6 +807,7 @@ async function resultsBatch(c: any, a: Access) {
       if (!m) throw notFound("match");
       if (m.row.kind === "bye") throw invalidState("byes have no result");
       const result = normaliseResult(it.result, a.settings.game, m.seats.length);
+    if (m.row.bracket_pos != null) requireWinner(result);
       if (m.roundStatus === "closed") {
         if (it.as !== "ruling" || !reopen) throw new ApiError(409, "round_closed", "closed rounds take rulings with ?reopen_standings=true");
         closedTouched = true;

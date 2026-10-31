@@ -20,6 +20,10 @@ export interface Settings {
     bye_points: number;
     min_games_to_rank: number;
     seed: number;
+    /** Group phase: players split into groups that play among themselves (API.md §2.2). */
+    groups?: GroupStage;
+    /** Knockout bracket: after the groups, or for everyone when there are no groups. */
+    bracket?: BracketStage;
   };
   reporting: {
     who_may_report: "participants" | "directors_only";
@@ -46,6 +50,24 @@ export interface Settings {
   byes: { max_requested: number | null; requested_points: number };
   check_in: { required: boolean };
   claims: { response_window: string };
+}
+
+export interface GroupStage {
+  /** How many groups; or give `size` (players per group) and the count follows from the entries. */
+  count?: number;
+  size?: number;
+  /** seeded: snake by seed (1→A, 2→B… then back); random; manual: directors set each entrant's group. */
+  assign: "seeded" | "random" | "manual";
+  /** "round-robin" (everyone in the group plays everyone once) or any engine pairing system, run per group. */
+  pairing: string;
+  /** Rounds for engine pairing within groups. Round robin works its own count out. */
+  rounds?: number | null;
+  /** How many from each group go through to the bracket (needs `bracket`). */
+  advance: number;
+}
+export interface BracketStage {
+  /** Single elimination. Losers of the semifinals play for third place. */
+  third_place: boolean;
 }
 
 export const NOTIFY_KINDS = ["pairings", "reports", "contested", "results", "announcements", "reminders"];
@@ -126,12 +148,37 @@ export function validateSettings(s: Settings, systems?: { pairing: string[]; ran
     oneOf(f.pairing, systems.pairing, "format.pairing");
     oneOf(f.ranking, systems.ranking, "format.ranking");
   } else if (typeof f.pairing !== "string" || typeof f.ranking !== "string") throw bad("format.pairing and format.ranking are required");
+  // A patch's null deletes the key (merge), so a missing round count means open-ended.
+  f.rounds ??= null;
   if (f.rounds !== null) int(f.rounds, "format.rounds", 1);
   int(f.games_per_round, "format.games_per_round", 1);
   oneOf(f.rematches, ["forbid", "avoid", "allow"], "format.rematches");
   num(f.bye_points, "format.bye_points");
   int(f.min_games_to_rank, "format.min_games_to_rank");
   int(f.seed, "format.seed");
+  if (f.groups != null) {
+    const gr = f.groups;
+    if (!isObj(gr)) throw bad("format.groups must be an object");
+    if ((gr.count == null) === (gr.size == null)) throw bad("format.groups needs either count (number of groups) or size (players per group)");
+    if (gr.count != null) int(gr.count, "format.groups.count", 1);
+    if (gr.size != null) int(gr.size, "format.groups.size", 2);
+    gr.assign ??= "seeded";
+    oneOf(gr.assign, ["seeded", "random", "manual"], "format.groups.assign");
+    gr.pairing ??= "round-robin";
+    if (gr.pairing !== "round-robin") {
+      if (systems) oneOf(gr.pairing, ["round-robin", ...systems.pairing], "format.groups.pairing");
+      if (gr.rounds == null) throw bad("format.groups.rounds is required unless the groups play a round robin");
+    }
+    if (gr.rounds != null) int(gr.rounds, "format.groups.rounds", 1);
+    gr.advance ??= f.bracket ? 2 : 0;
+    int(gr.advance, "format.groups.advance", f.bracket ? 1 : 0);
+    if (!f.bracket && gr.advance) throw bad("format.groups.advance needs a bracket (format.bracket) to advance into");
+  }
+  if (f.bracket != null) {
+    if (!isObj(f.bracket)) throw bad("format.bracket must be an object");
+    f.bracket.third_place ??= false;
+    bool(f.bracket.third_place, "format.bracket.third_place");
+  }
 
   oneOf(s.reporting.who_may_report, ["participants", "directors_only"], "reporting.who_may_report");
   oneOf(s.reporting.amend_until, ["round_closed", "confirmed", "never"], "reporting.amend_until");

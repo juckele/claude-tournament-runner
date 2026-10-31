@@ -235,6 +235,16 @@ channels:
 **Paid plans.** Leave `BILLING` unset and everything is free and unlimited.
 To charge, see "Clubs and plans" below.
 
+## Groups and brackets
+
+A tournament can run plain rounds (Swiss or any engine system), groups
+followed by a single-elimination bracket, or a straight knockout. Groups play
+a round robin or an engine system inside each group. The bracket is drawn
+from the group standings: group winners are seeded first, and players from
+the same group are kept apart for as long as possible. An optional
+third-place game is played alongside the final. API.md §2.2 and §5.11 have
+the details; the web app has a Groups tab and a Bracket view.
+
 ## Clubs and plans
 
 A club shares tournaments between its admins (owners of every club
@@ -266,7 +276,7 @@ a Stripe key in development, checkout switches the plan on immediately.
 - engine tests
 - web typecheck and build
 - API typecheck and tests
-- all four browser tests against `./dev.sh`, with screenshots uploaded
+- all five browser tests against `./dev.sh`, with screenshots uploaded
 
 `.github/workflows/android.yml` builds the app.
 

@@ -5,6 +5,7 @@ import { describeResult, placementResult, when } from "../format";
 import { useAction, useApi } from "../hooks";
 import { BackLink, Board, Button, Dialog, ErrorNote, Field, Loading, Section, StatusPill } from "../ui";
 import { ReportPanel } from "./ReportPanel";
+import { roundTitle } from "../stages";
 import { useT } from "./Tournament";
 
 const channelText: Record<string, string> = { api: "web", td: "director desk", email: "email", sms: "text", link: "report link", channel: "message" };
@@ -32,7 +33,7 @@ export function MatchPage() {
         <div className="row" style={{ alignItems: "flex-start", gap: 16 }}>
           {m.kind === "bye" ? <span className="board board-l board-bye">–</span> : <Board n={m.board} size="l" />}
           <div className="stack" style={{ gap: 6, flex: 1, minWidth: 200 }}>
-            <span className="muted small">Round {m.round}</span>
+            <span className="muted small">{roundTitle(t, m.round)}{m.bracket?.tier === "third" ? ", third place" : ""}</span>
             {m.seats.map((x, i) => (
               <span key={x.entrant_id} style={{ fontSize: "clamp(1.3rem, 5vw, 1.8rem)", fontWeight: 800, fontVariationSettings: '"wdth" 75', lineHeight: 1.1 }}>
                 {x.name}

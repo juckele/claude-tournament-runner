@@ -26,6 +26,8 @@ export interface MatchRow {
   version: number;
   created_at: string;
   updated_at: string;
+  bracket_pos?: number | null;
+  bracket_tier?: "main" | "third" | null;
 }
 
 export interface ReportRev {
@@ -243,6 +245,7 @@ export function matchJson(m: MatchModel, settings: Settings, opts: { reports?: b
     updated_at: r.updated_at,
   };
   if (r.kind === "bye") out.bye_reason = r.bye_reason;
+  if (r.bracket_pos != null) out.bracket = { pos: r.bracket_pos, tier: r.bracket_tier ?? "main" };
   if (opts.reports)
     out.reports = m.seats.map((e) => m.latest.get(e)).filter(Boolean).map((x) => reportJson(x!));
   return out;

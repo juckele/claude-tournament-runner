@@ -3,6 +3,7 @@ import type { Access } from "./auth";
 import { addMs, ApiError, bad, durationMs, Env, forbidden, invalidState, isObj, isoOrNull, newId, now, parseJson } from "./core";
 import { loadMatch, MatchModel, matchJson, reportJson, requireSeated, Ruling } from "./matches";
 import { recomputeStandings } from "./progress";
+import { requireWinner } from "./stages";
 import { normaliseResult, Result } from "./results";
 import { Tx, withRetry } from "./tx";
 
@@ -39,6 +40,7 @@ export async function submitReport(
         throw new ApiError(412, "precondition_failed", "your report changed since you read it", { current: prev ? reportJson(prev) : null });
     }
     const result = normaliseResult(body.result, a.settings.game, m.seats.length);
+    if (m.row.bracket_pos != null) requireWinner(result);
     const note = typeof body.note === "string" ? body.note.slice(0, 1000) : null;
     const tx = new Tx(env, a.actor);
     const before = m.row.status;
@@ -84,6 +86,7 @@ export async function setRuling(env: Env, a: Access, matchId: string, body: any,
     const closed = m.roundStatus === "closed";
     if (closed && !reopenStandings) throw new ApiError(409, "round_closed", "this round is closed; pass ?reopen_standings=true to correct it and recompute standings");
     const result = normaliseResult(body.result, a.settings.game, m.seats.length);
+    if (m.row.bracket_pos != null) requireWinner(result);
     const ruling: Ruling = { result, reason: body.reason.slice(0, 1000), by: a.p.user_id!, source: "director", at: now() };
     const own = !tx;
     const t = tx ?? new Tx(env, a.actor);
