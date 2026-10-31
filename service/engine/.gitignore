@@ -1,3 +1,5 @@
 src/pairlab/
 .venv-workers/
 python_modules/
+src/vendor/
+pylock.toml

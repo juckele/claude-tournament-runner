@@ -1,2 +1,4 @@
 node_modules/
 .wrangler/
+wrangler.deploy.json
+.deploy-dry-run/

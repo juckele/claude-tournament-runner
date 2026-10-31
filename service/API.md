@@ -578,6 +578,12 @@ What the Worker in `service/api` settled that this spec left open:
   on their games. Sign-in links point at the app (`/sign-in/verify`) and report
   links at `/t/{t}/m/{m}?t=…`. The API serves the web app for every path
   outside `/v1/*`.
+- **Account deletion.** `DELETE /me {confirm: "delete my account"}`, from a
+  session only. It removes contact points, sessions, tokens, devices, sign-in
+  codes and deliveries, and blanks notes and comments. Live entries are
+  withdrawn, and the person shows as "Deleted player" in past games. Draft
+  tournaments they own alone are deleted. Live ones they own alone block it
+  with `409 sole_owner`.
 - **Live updates.** `POST /tournaments/{t}/live` returns a 2-minute ticket and a
   `url`. Opening that URL as a WebSocket streams
   `{type: "events", events: [{id, type, at, round, match_id, entrant_id, by}]}`,

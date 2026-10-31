@@ -1,0 +1,91 @@
+name: Deploy
+
+# Staging deploys on every push to main that touches the service; production is deployed by
+# hand (Actions → Deploy → Run workflow → production). Both run the full test suite first.
+#
+# Per GitHub environment ("staging", "production"):
+#   secrets  CLOUDFLARE_API_TOKEN   token with Workers Scripts, D1, Queues, Workers Routes (and
+#                                   Custom Domains if PUBLIC_URL is your own domain): Edit
+#            CLOUDFLARE_ACCOUNT_ID
+#            optional: RESEND_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM,
+#                      FCM_SERVICE_ACCOUNT, CHANNEL_TOKEN, INBOUND_EMAIL_SECRET
+#   vars     optional: PUBLIC_URL (your domain; default is the workers.dev address), EMAIL_FROM,
+#                      ANDROID_APP_ID, ANDROID_CERT_SHA256, CORS_ORIGINS
+# Add a required reviewer to the "production" environment to gate production deploys.
+
+on:
+  push:
+    branches: [main]
+    paths: ["service/**", "pairlab/**", "requirements.txt", ".github/workflows/deploy.yml"]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Where to deploy
+        type: choice
+        options: [staging, production]
+        default: staging
+
+concurrency:
+  group: deploy-${{ inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/service.yml
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: ${{ inputs.environment || 'staging' }}
+      url: ${{ steps.deploy.outputs.url }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+      PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+      EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+      ANDROID_APP_ID: ${{ vars.ANDROID_APP_ID }}
+      ANDROID_CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
+      CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+      TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+      TWILIO_FROM: ${{ secrets.TWILIO_FROM }}
+      FCM_SERVICE_ACCOUNT: ${{ secrets.FCM_SERVICE_ACCOUNT }}
+      CHANNEL_TOKEN: ${{ secrets.CHANNEL_TOKEN }}
+      INBOUND_EMAIL_SECRET: ${{ secrets.INBOUND_EMAIL_SECRET }}
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - name: Check Cloudflare credentials
+        id: creds
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning title=Not deployed::Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to the '${{ inputs.environment || 'staging' }}' environment to deploy."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v5
+        if: steps.creds.outputs.ready == 'true'
+      - uses: actions/setup-node@v5
+        if: steps.creds.outputs.ready == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            service/api/package-lock.json
+            service/web/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+        if: steps.creds.outputs.ready == 'true'
+      - name: Install
+        if: steps.creds.outputs.ready == 'true'
+        run: |
+          (cd service/api && npm ci --legacy-peer-deps)
+          (cd service/web && npm ci --legacy-peer-deps)
+      - name: Deploy
+        id: deploy
+        if: steps.creds.outputs.ready == 'true'
+        run: |
+          node service/deploy/deploy.mjs "${{ inputs.environment || 'staging' }}" | tee "$RUNNER_TEMP/deploy.log"
+          echo "url=$(grep -oE 'Deployed: \S+' "$RUNNER_TEMP/deploy.log" | tail -1 | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"

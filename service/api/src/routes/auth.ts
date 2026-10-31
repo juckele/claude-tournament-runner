@@ -2,6 +2,7 @@
 import { Hono } from "hono";
 import { createSession, requireUser } from "../lib/auth";
 import { ApiError, bad, invalidState, isObj, newId, normaliseEmail, normalisePhone, notFound, now, randomDigits, randomToken, sha256 } from "../lib/core";
+import { deleteAccount } from "../lib/account";
 import { sendDirect } from "../lib/notify";
 import type { H } from "../http";
 
@@ -155,6 +156,16 @@ auth.delete("/me/contacts/:id", async (c) => {
   if (con.verified_at && n.n === 0) throw invalidState("you can't remove your only verified contact (you'd be locked out)");
   await db.prepare("DELETE FROM contacts WHERE id = ?").bind(con.id).run();
   return c.body(null, 204);
+});
+
+/**
+ * Delete my account. Needs a signed-in session (not an API token) and {"confirm": "delete my account"}.
+ * See lib/account.ts for exactly what goes and what stays.
+ */
+auth.delete("/me", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  if (b.confirm !== "delete my account") throw bad('send {"confirm": "delete my account"} to delete your account');
+  return c.json(await deleteAccount(c.env, c.get("p")));
 });
 
 // ---------------------------------------------------------------- phones (push notifications)
