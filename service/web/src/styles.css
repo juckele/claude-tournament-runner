@@ -343,3 +343,13 @@ tr.ineligible td { color: var(--ink-3); }
   @page { margin: 18mm; }
 }
 .t-layout.t-layout-solo { display: block; max-width: 640px; }
+
+/* ------------------------------------------------------------ live indicator */
+.live { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; font-weight: 650; }
+.live::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.live-live { color: var(--felt); }
+.live-live::before { box-shadow: 0 0 0 0 color-mix(in srgb, var(--felt) 60%, transparent); animation: live-pulse 2.4s ease-out infinite; }
+.live-connecting, .live-offline { color: var(--ink-3); }
+.live-offline::before { background: transparent; border: 2px solid currentColor; }
+@keyframes live-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--felt) 55%, transparent); } 70%, 100% { box-shadow: 0 0 0 7px transparent; } }
+@media (prefers-reduced-motion: reduce) { .live-live::before { animation: none; } }

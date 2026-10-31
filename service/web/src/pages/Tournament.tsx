@@ -2,7 +2,8 @@ import { createContext, useContext, useEffect, useMemo } from "react";
 import { NavLink, Route, Routes, useParams, useSearchParams } from "react-router-dom";
 import { Entrant, getToken, setLinkToken, Tournament } from "../api";
 import { isTD, tournamentStatusText } from "../format";
-import { useApi } from "../hooks";
+import { LiveCtx, useApi, useToast } from "../hooks";
+import { LiveEvent, useLive } from "../live";
 import { IconDesk, IconGame, IconLog, IconPairings, IconPlayers, IconSettings, IconStandings } from "../icons";
 import { ErrorNote, Loading } from "../ui";
 import { Desk } from "./Desk";
@@ -45,6 +46,20 @@ export function TournamentRoutes() {
   const tq = useApi<Tournament>(`/tournaments/${tid}${invite ? `?invite=${encodeURIComponent(invite)}` : ""}`);
   const eq = useApi<{ entrants: Entrant[] }>(tq.data ? `/tournaments/${tid}/entrants` : null);
   const names = useMemo(() => new Map((eq.data?.entrants ?? []).map((e) => [e.id, e.display_name])), [eq.data]);
+  const toast = useToast();
+  const liveOn = !!tq.data && !["complete", "cancelled"].includes(tq.data.status) && !(tq.data.visibility === "private" && !tq.data.my_role && !tq.data.my_entrant_id);
+  const onEvents = (evs: LiveEvent[]) => {
+    const t = tq.data;
+    if (!t) return;
+    tq.reload();
+    eq.reload();
+    const paired = evs.find((e) => e.type === "pairings.published");
+    // Directors already get a toast for their own actions; tell them about automatic ones.
+    if (paired && (isTD(t.my_role) ? paired.by === "system" : !!t.my_entrant_id)) toast(`Round ${paired.round} is paired.`);
+    if (evs.some((e) => e.type === "tournament.completed")) toast("The tournament is finished. Final standings are up.");
+    if (isTD(t.my_role) && evs.some((e) => e.type === "round.auto_advance_failed")) toast("Auto-pairing couldn't pair the next round. Check the Desk.", "error");
+  };
+  const live = useLive(tid, liveOn, onEvents);
 
   if (tq.loading) return <Loading />;
   if (tq.error || !tq.data)
@@ -77,6 +92,7 @@ export function TournamentRoutes() {
 
   return (
     <Ctx.Provider value={ctx}>
+     <LiveCtx.Provider value={{ tick: live.tick, connected: live.state === "live" }}>
       <div className="t-head">
         <h1>{t.name}</h1>
         <div className="t-meta">
@@ -84,6 +100,11 @@ export function TournamentRoutes() {
           {t.current_round ? <span>Round {t.current_round}{t.settings.format.rounds ? ` of ${t.settings.format.rounds}` : ""}</span> : null}
           <span>{t.settings.game.name}</span>
           {t.my_role ? <span>You're {t.my_role === "owner" ? "the owner" : `a ${t.my_role}`}</span> : null}
+          {liveOn ? (
+            <span className={`live live-${live.state}`} title={live.state === "live" ? "Updates appear as they happen" : "Reconnecting; the page refreshes itself in the meantime"}>
+              {live.state === "live" ? "Live" : live.state === "connecting" ? "Connecting" : "Reconnecting"}
+            </span>
+          ) : null}
         </div>
       </div>
       <div className={`t-layout ${outsider ? "t-layout-solo" : ""}`}>
@@ -115,6 +136,7 @@ export function TournamentRoutes() {
           </Routes>
         </div>
       </div>
+     </LiveCtx.Provider>
     </Ctx.Provider>
   );
 }

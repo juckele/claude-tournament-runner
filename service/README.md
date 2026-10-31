@@ -8,6 +8,11 @@ There are two Cloudflare Workers:
 | `tournament-api` | [`api/`](api/) | TypeScript (Hono) REST API on **D1**. Owns all state, access control, the outbox queue and the SMS/email command channel. |
 | `tournament-engine` | [`engine/`](engine/) | **Python Worker** that wraps `pairlab`. It has no routes of its own; the API reaches it through the `ENGINE` service binding (`POST /pair`, `POST /rank`, `GET /systems`). |
 
+The API Worker also hosts a **Durable Object per tournament** (`TournamentHub`,
+in `api/src/hub.ts`). It pushes live updates to open pages over WebSockets and
+runs auto-pairing. The **Android app** ([`android/`](android/)) is the same web
+app in a Capacitor shell.
+
 Live events and `pairlab` studies run the same pairing and ranking code.
 
 The **web app** ([`web/`](web/)) is a React single-page app for phones and
@@ -69,6 +74,72 @@ D1 rolls back the whole batch. The request then retries once (API.md §7).
 Every batch also writes its events to the `events` table, and those events are
 enqueued on the `OUTBOX` queue for notifications and webhooks.
 
+## Live updates and auto-pairing
+
+**Live updates.** Every committed write also goes to that tournament's hub. The
+hub relays a slim event (type, round, match id, entrant id, kind of actor) to
+every connected page. Results, notes and names are never sent, so a socket can't
+see more than its owner could fetch. Pages refetch what they need when told
+something changed, and poll only while disconnected.
+
+- **Connecting:** a browser can't put a bearer token on a WebSocket. So the page
+  first `POST`s `/v1/tournaments/{t}/live`, which checks access and returns a
+  2-minute ticket. It then opens `/v1/tournaments/{t}/live?ticket=…`.
+
+**Auto-pairing.** Turn on `progression.auto_advance` (Settings → "Pair the next
+round automatically"). After each change, the hub checks whether the round can
+close and, if so, closes it and pairs the next one as the `system` actor. When
+something will change by itself, it sets a Durable Object alarm for that moment
+instead:
+
+- a lone report's dispute window ending
+- the round's deadline
+- a no-show claim expiring
+
+Because the checks run inside the Durable Object, they're serialised per
+tournament, so a round can't be advanced twice. Two rules keep it safe:
+
+- **Unreported games wait for the deadline.** They always wait for the round's
+  deadline before the unplayed policy applies, so a round never closes the
+  moment it opens.
+- **Impossible pairings stop it.** If the next round can't be paired under the
+  rules, it records `round.auto_advance_failed` once, and the Desk asks the
+  director to step in. Pausing the tournament stops auto-pairing.
+
+## Android app
+
+`android/` is a Capacitor 8 project around the built web app. Inside the app
+the web app adds:
+
+- **Links:** App Links open sign-up QR codes, sign-in links and report links
+  for your domain in the app.
+- **Scanning:** a "Scan a sign-up code" button on the home screen.
+- **Push notifications** through Firebase Cloud Messaging.
+- **Back button:** it walks back through the app's history before exiting.
+
+The API allows the app's WebView origin (`https://localhost`) through CORS.
+
+**Building** (needs JDK 21 and the Android SDK):
+
+```
+cd web && VITE_API_BASE=https://your.domain npm run build    # the API the app talks to
+cd ../android && npm ci --legacy-peer-deps && npx cap sync android
+cd android && ./gradlew assembleDebug -PappLinkHost=your.domain
+```
+
+CI (`.github/workflows/android.yml`) does this on every PR that touches the
+app and uploads the APK. It builds a signed release and AAB when the keystore
+secrets are set. Setup:
+
+- **Push:** create a Firebase project with an Android app for your application
+  id. Store its `google-services.json` as the `GOOGLE_SERVICES_JSON` repository
+  secret; builds without it leave push out. Put the service-account JSON in the
+  API's `FCM_SERVICE_ACCOUNT` secret. Players can turn phone notifications off
+  per tournament, and directors per kind (`channels.push`).
+- **App Links:** set the API's `ANDROID_APP_ID` and `ANDROID_CERT_SHA256` (the
+  release signing certificate's fingerprint, which the CI release step prints),
+  so that `/.well-known/assetlinks.json` verifies the domain.
+
 ## Running locally
 
 ```
@@ -88,11 +159,12 @@ http://localhost:5173 (it proxies `/v1` to :8787). Rebuilding `web/dist` while
 Tests:
 
 ```
-cd api && npm test             # 18 integration tests (workerd + D1 + real engine via python3)
+cd api && npm test             # 24 integration tests (workerd + D1 + real engine via python3)
 cd engine && python3 -m pytest -q tests
 cd web && npm run e2e          # browser runs against ./dev.sh: a whole event (director on desktop,
-                               # players on phones), and a private event joined by scanning its
-                               # sign-up QR code (decoded from the rendered image);
+                               # players on phones); a private event joined by scanning its
+                               # sign-up QR code (decoded from the rendered image); and live
+                               # updates + auto-pairing with no page reloads;
                                # screenshots land in web/e2e/out/
 ```
 
@@ -121,6 +193,7 @@ wrangler secret put CHANNEL_TOKEN         # optional: external channel adapters
 wrangler secret put INBOUND_EMAIL_SECRET  # optional: JSON inbound-email webhook
 wrangler secret put RESEND_API_KEY        # optional: outgoing email
 wrangler secret put TWILIO_ACCOUNT_SID    # optional: SMS (also TWILIO_AUTH_TOKEN, TWILIO_FROM)
+wrangler secret put FCM_SERVICE_ACCOUNT   # optional: push to the Android app
 npm run deploy
 ```
 
@@ -132,6 +205,17 @@ channels:
   Email Routing. Its `email()` handler parses the message.
 - **Email (other providers):** POST parsed mail to `/v1/inbound/email` with the
   `X-Inbound-Secret` header.
+
+## CI
+
+`.github/workflows/service.yml` runs on every PR that touches the service:
+
+- engine tests
+- web typecheck and build
+- API typecheck and tests
+- all three browser tests against `./dev.sh`, with screenshots uploaded
+
+`.github/workflows/android.yml` builds the app.
 
 ## Not built yet
 

@@ -5,7 +5,7 @@ import type { Settings } from "./settings";
 export type Channel = "api" | "td" | "email" | "sms" | "link";
 
 export interface Principal {
-  kind: "anon" | "user" | "pat" | "channel" | "link";
+  kind: "anon" | "user" | "pat" | "channel" | "link" | "system";
   user_id?: string;
   scopes?: string[];
   channel: Channel;
@@ -170,6 +170,7 @@ export class Access {
     return this.isTD || (this.p.kind !== "link" && this.role === "observer");
   }
   get actorRole(): string {
+    if (this.p.kind === "system") return "system";
     if (this.p.kind === "link") return "link";
     if (this.p.kind === "channel") return "channel";
     return this.role === "owner" || this.role === "director" ? this.role : "entrant";

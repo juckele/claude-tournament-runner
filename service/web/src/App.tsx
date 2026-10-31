@@ -1,5 +1,6 @@
-import { ReactNode } from "react";
-import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { ReactNode, useEffect } from "react";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { enablePush, initNative } from "./native";
 import { useSession } from "./hooks";
 import { Home } from "./pages/Home";
 import { NewTournament } from "./pages/NewTournament";
@@ -10,6 +11,14 @@ import { TournamentRoutes } from "./pages/Tournament";
 import { Loading } from "./ui";
 
 export function App() {
+  const navigate = useNavigate();
+  const { me } = useSession();
+  useEffect(() => {
+    initNative((path) => navigate(path));
+  }, []);
+  useEffect(() => {
+    if (me) enablePush();
+  }, [me?.id]);
   return (
     <Routes>
       <Route path="/sign-in" element={<SignIn />} />

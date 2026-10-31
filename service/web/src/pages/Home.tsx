@@ -1,13 +1,27 @@
-import { Link } from "react-router-dom";
-import { Tournament } from "../api";
+import { Link, useNavigate } from "react-router-dom";
+import { isNative, pathFromScan, scanQr } from "../native";
+import { PUBLIC_ORIGIN, Tournament } from "../api";
 import { tournamentStatusText } from "../format";
-import { useApi, useSession } from "../hooks";
-import { Empty, Section } from "../ui";
+import { useApi, useSession, useToast } from "../hooks";
+import { Button, Empty, Section } from "../ui";
 
 export function Home() {
   const { me } = useSession();
+  const navigate = useNavigate();
+  const toast = useToast();
   const open = useApi<{ tournaments: Tournament[] }>("/tournaments?status=registration,running");
   if (!me) return null;
+  async function scan() {
+    try {
+      const text = await scanQr();
+      if (!text) return;
+      const path = pathFromScan(text, PUBLIC_ORIGIN);
+      if (path) navigate(path);
+      else toast("That code isn't a sign-up code for this app.", "error");
+    } catch {
+      toast("Couldn't open the camera. Check the app's camera permission.", "error");
+    }
+  }
   const playing = me.entries.filter((e) => !["removed"].includes(e.status));
   const running = me.roles.filter((r) => r.role === "owner" || r.role === "director");
   const mineIds = new Set([...playing.map((e) => e.tournament_id), ...me.roles.map((r) => r.tournament_id)]);
@@ -18,7 +32,10 @@ export function Home() {
     <div className="home-grid">
       <div className="spread">
         <h1>Hello, {me.display_name}</h1>
-        <Link to="/new" className="btn btn-primary">New tournament</Link>
+        <div className="row">
+          {isNative ? <Button onClick={scan}>Scan a sign-up code</Button> : null}
+          <Link to="/new" className="btn btn-primary">New tournament</Link>
+        </div>
       </div>
 
       <Section title="Playing">

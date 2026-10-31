@@ -45,7 +45,7 @@ try {
   await shot(td, "01-home-desktop");
   await td.page.getByRole("link", { name: "New tournament" }).click();
   await td.page.getByLabel("Name", { exact: true }).fill("Thursday Club Night");
-  await td.page.getByLabel("Game").fill("Chess");
+  await td.page.getByRole("textbox", { name: /^Game/ }).fill("Chess");
   await td.page.getByLabel("Rounds").fill("2");
   await td.page.getByLabel("Side names").fill("White, Black");
   await shot(td, "02-new-tournament");

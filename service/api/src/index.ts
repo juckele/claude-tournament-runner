@@ -7,8 +7,15 @@ import { deliver, handleOutbox } from "./lib/notify";
 import { expireClaims } from "./lib/progress";
 import { commandFromEmail } from "./routes/inbound";
 
+export { TournamentHub } from "./hub";
+
 export default {
-  fetch: app.fetch,
+  fetch(req: Request, env: Env, ctx: ExecutionContext) {
+    const url = new URL(req.url);
+    // Android App Links: lets the app open sign-up, sign-in and report links for this domain.
+    if (url.pathname === "/.well-known/assetlinks.json") return assetLinks(env);
+    return app.fetch(req, env, ctx);
+  },
 
   async queue(batch: MessageBatch<OutboxMessage>, env: Env) {
     await handleOutbox(batch, env);
@@ -26,6 +33,14 @@ export default {
     await deliver(env, "email", from, `Re: ${parsed.subject ?? "your message"}`, reply, null, null);
   },
 } satisfies ExportedHandler<Env, OutboxMessage>;
+
+function assetLinks(env: Env) {
+  const prints = String(env.ANDROID_CERT_SHA256 ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const body = env.ANDROID_APP_ID && prints.length
+    ? [{ relation: ["delegate_permission/common.handle_all_urls"], target: { namespace: "android_app", package_name: env.ANDROID_APP_ID, sha256_cert_fingerprints: prints } }]
+    : [];
+  return Response.json(body, { headers: { "cache-control": "public, max-age=3600" } });
+}
 
 export async function cron(env: Env) {
   await expireClaims(env);

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, setToken } from "../api";
+import { unregisterDevice } from "../native";
 import { useAction, useApi, useSession, useToast } from "../hooks";
 import { Button, Field, Section } from "../ui";
 
@@ -96,7 +97,7 @@ export function Profile() {
         </div>
       </Section>
 
-      <Button kind="danger" onClick={async () => { await api("POST", "/auth/logout").catch(() => {}); setToken(null); toast("Signed out."); nav("/sign-in"); }}>Sign out</Button>
+      <Button kind="danger" onClick={async () => { await unregisterDevice(); await api("POST", "/auth/logout").catch(() => {}); setToken(null); toast("Signed out."); nav("/sign-in"); }}>Sign out</Button>
     </div>
   );
 }

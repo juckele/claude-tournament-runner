@@ -421,3 +421,56 @@ export async function voidAll(env: Env, tx: Tx, tid: string, entrantId: string) 
   }
   return ms.length;
 }
+
+// ---------------------------------------------------------------- auto-pairing
+/**
+ * Close the current round and pair the next one if nothing blocks it (progression.auto_advance).
+ * Called by the tournament's hub after relevant changes and at the alarms it sets. Unreported
+ * games always wait for the round's deadline (if any) before the unplayed policy applies, so a
+ * round never closes the moment it opens. Returns when to look again, if something will change
+ * on its own (a dispute window ending, a deadline, a no-show claim expiring).
+ */
+export async function autoAdvance(env: Env, tid: string): Promise<{ advanced: boolean; round?: number | null; completed?: boolean; retry_at?: string | null; reason?: string }> {
+  const { Access } = await import("./auth");
+  const t = await env.DB.prepare("SELECT * FROM tournaments WHERE id = ?").bind(tid).first<any>();
+  if (!t || t.status !== "running") return { advanced: false, reason: "not running" };
+  const settings = parseJson<Settings>(t.settings, null as any);
+  if (!settings?.progression?.auto_advance) return { advanced: false, reason: "auto-pairing is off" };
+  await expireClaims(env, tid);
+  const n = t.current_round;
+  const at = now();
+  const [ms, round, claims] = await Promise.all([
+    loadMatches(env.DB, tid, n),
+    env.DB.prepare("SELECT deadline FROM rounds WHERE tournament_id = ? AND number = ?").bind(tid, n).first<{ deadline: string | null }>(),
+    env.DB.prepare("SELECT MIN(expires_at) AS e FROM claims WHERE tournament_id = ? AND status = 'pending'").bind(tid).first<{ e: string | null }>(),
+  ]);
+  const pastDeadline = !!round?.deadline && round.deadline <= at;
+  const chk = checkRound(settings, ms, at, pastDeadline ? {} : { scheduled: "block" });
+  if (chk.blockers.length) {
+    const wake = [
+      ...chk.blockers.map((b) => b.ready_at).filter(Boolean),
+      !pastDeadline && round?.deadline && chk.blockers.some((b) => b.status === "scheduled") ? round.deadline : null,
+      claims?.e ?? null,
+    ].filter((x): x is string => !!x && x > at);
+    return { advanced: false, retry_at: wake.sort()[0] ?? null, reason: `${chk.blockers.length} game(s) not settled` };
+  }
+  const a = new Access({ kind: "system", channel: "api" }, t, settings, "owner", null);
+  try {
+    const r = await advance(env, a, {});
+    return { advanced: true, round: (r as any).round ?? null, completed: !!(r as any).completed };
+  } catch (err) {
+    if (err instanceof ApiError && err.code === "round_not_ready") return { advanced: false, retry_at: (err.extra.ready_at as string) ?? null };
+    if (err instanceof ApiError && err.code === "conflict") return { advanced: false, retry_at: new Date(Date.now() + 2000).toISOString() };
+    if (err instanceof ApiError && err.status === 422) {
+      // Pairing impossible under the rules: tell the directors once per round and stop trying.
+      const seen = await env.DB.prepare("SELECT 1 FROM events WHERE tournament_id = ? AND type = 'round.auto_advance_failed' AND data LIKE ?").bind(tid, `%"round":${n},%`).first();
+      if (!seen) {
+        const tx = new Tx(env, { user_id: null, role: "system", channel: "api" });
+        tx.event("round.auto_advance_failed", tid, { round: n }, { round: n, reason: err.detail ?? err.code });
+        await tx.commit();
+      }
+      return { advanced: false, reason: err.detail };
+    }
+    throw err;
+  }
+}

@@ -578,6 +578,26 @@ What the Worker in `service/api` settled that this spec left open:
   on their games. Sign-in links point at the app (`/sign-in/verify`) and report
   links at `/t/{t}/m/{m}?t=…`. The API serves the web app for every path
   outside `/v1/*`.
+- **Live updates.** `POST /tournaments/{t}/live` returns a 2-minute ticket and a
+  `url`. Opening that URL as a WebSocket streams
+  `{type: "events", events: [{id, type, at, round, match_id, entrant_id, by}]}`,
+  where `by` is the kind of actor (`entrant`, `director`, `system`, …). It never
+  carries results, notes or names. Send `ping` to get `pong`.
+- **Auto-pairing.** `progression.auto_advance` (default false). The
+  tournament's Durable Object closes the round and pairs the next one when
+  nothing blocks it. Unreported games wait for the round's deadline. If pairing
+  is impossible it records `round.auto_advance_failed` once.
+  `POST /tournaments/{t}/auto-advance/check` (TD) runs a check and says what
+  it's waiting for (`retry_at`).
+- **Android app.**
+  - **Push devices:** `POST /me/devices {token, platform: "android"}` registers
+    an FCM token, and `DELETE /me/devices {token}` removes it. Push is a
+    delivery channel (`channels.push`, on by default for every notify kind),
+    and entrants can opt out with `contact_prefs.push`.
+  - **CORS:** the API allows `https://localhost` (the app's WebView) plus
+    `CORS_ORIGINS`.
+  - **App Links:** `/.well-known/assetlinks.json` is built from `ANDROID_APP_ID`
+    and `ANDROID_CERT_SHA256`.
 - **Notifications.** Kinds are `pairings`, `reports`, `contested`, `results`,
   `announcements` and `reminders`. Email goes through Resend, SMS through
   Twilio; without credentials, messages are only logged (`deliveries.status = logged`).

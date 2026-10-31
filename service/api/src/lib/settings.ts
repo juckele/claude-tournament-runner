@@ -27,6 +27,8 @@ export interface Settings {
     deadline: string | null;
   };
   progression: {
+    /** Close the round and pair the next one by itself as soon as nothing blocks it. */
+    auto_advance: boolean;
     accept_undisputed_after: string | null;
     unplayed: "block" | "void" | "double_forfeit";
   };
@@ -35,6 +37,8 @@ export interface Settings {
     td: { enabled: boolean };
     email: { enabled: boolean; notify: string[]; inbound: boolean };
     sms: { enabled: boolean; notify: string[]; inbound: boolean };
+    /** Phone notifications through the Android app. Missing on older tournaments: treated as the default. */
+    push?: { enabled: boolean; notify: string[] };
   };
   registration: { mode: "open" | "approval" | "invite"; max_entrants: number | null };
   withdrawal: { unplayed: "void" | "forfeit"; hide: boolean };
@@ -67,12 +71,13 @@ export function defaultSettings(): Settings {
       seed: Math.floor(Math.random() * 2 ** 31),
     },
     reporting: { who_may_report: "participants", amend_until: "round_closed", deadline: null },
-    progression: { accept_undisputed_after: "PT24H", unplayed: "block" },
+    progression: { auto_advance: false, accept_undisputed_after: "PT24H", unplayed: "block" },
     channels: {
       api: { enabled: true },
       td: { enabled: true },
       email: { enabled: true, notify: ["pairings", "reports", "contested", "announcements"], inbound: true },
       sms: { enabled: false, notify: ["pairings"], inbound: true },
+      push: { enabled: true, notify: ["pairings", "reports", "contested", "results", "announcements", "reminders"] },
     },
     registration: { mode: "open", max_entrants: null },
     withdrawal: { unplayed: "void", hide: false },
@@ -131,10 +136,17 @@ export function validateSettings(s: Settings, systems?: { pairing: string[]; ran
   oneOf(s.reporting.who_may_report, ["participants", "directors_only"], "reporting.who_may_report");
   oneOf(s.reporting.amend_until, ["round_closed", "confirmed", "never"], "reporting.amend_until");
   dur(s.reporting.deadline, "reporting.deadline");
+  s.progression.auto_advance ??= false;
+  bool(s.progression.auto_advance, "progression.auto_advance");
   dur(s.progression.accept_undisputed_after, "progression.accept_undisputed_after");
   oneOf(s.progression.unplayed, ["block", "void", "double_forfeit"], "progression.unplayed");
 
-  for (const k of Object.keys(s.channels)) if (!["api", "td", "email", "sms"].includes(k)) throw bad(`unknown channel: ${k}`);
+  for (const k of Object.keys(s.channels)) if (!["api", "td", "email", "sms", "push"].includes(k)) throw bad(`unknown channel: ${k}`);
+  if (s.channels.push) {
+    bool(s.channels.push.enabled, "channels.push.enabled");
+    if (!Array.isArray(s.channels.push.notify) || !s.channels.push.notify.every((n) => NOTIFY_KINDS.includes(n)))
+      throw bad(`channels.push.notify must list some of: ${NOTIFY_KINDS.join(", ")}`);
+  }
   for (const k of ["api", "td", "email", "sms"] as const) bool(s.channels[k]?.enabled, `channels.${k}.enabled`);
   for (const k of ["email", "sms"] as const) {
     const c = s.channels[k];

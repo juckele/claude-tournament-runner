@@ -7,6 +7,15 @@ export interface Env {
   /** Local development only: call the engine over HTTP instead of the service binding. */
   ENGINE_URL?: string;
   ASSETS?: Fetcher;
+  /** One Durable Object per tournament: live WebSocket fan-out and the auto-pairing scheduler. */
+  HUB?: DurableObjectNamespace;
+  /** Set inside the hub itself, so its own writes broadcast locally instead of calling back in. */
+  HUB_LOCAL?: { broadcast(tid: string, events: unknown[]): void };
+  /** Comma-separated extra origins allowed to call the API (the Android app's WebView). */
+  CORS_ORIGINS?: string;
+  ANDROID_APP_ID?: string;
+  ANDROID_CERT_SHA256?: string;
+  FCM_SERVICE_ACCOUNT?: string;
   PUBLIC_URL: string;
   EMAIL_FROM: string;
   DEV_MODE?: string;

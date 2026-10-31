@@ -1,8 +1,17 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api, ApiError, getToken, Me, onSession } from "./api";
 
-/** Load `path`; `reload()` refetches. Optional polling while the tab is visible. */
+/**
+ * Live updates for the tournament on screen: `tick` bumps whenever something changes, and every
+ * useApi below the provider refetches. While connected, polling is paused.
+ */
+export const LiveCtx = createContext<{ tick: number; connected: boolean }>({ tick: 0, connected: false });
+
+/** Load `path`; `reload()` refetches. Refetches on live changes, and polls while not connected. */
 export function useApi<T>(path: string | null, opts: { poll?: number } = {}) {
+  const live = useContext(LiveCtx);
+  const connected = useRef(live.connected);
+  connected.current = live.connected;
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [loading, setLoading] = useState(!!path);
@@ -27,9 +36,13 @@ export function useApi<T>(path: string | null, opts: { poll?: number } = {}) {
     setData(null);
     load();
   }, [load]);
+  const firstTick = useRef(live.tick);
+  useEffect(() => {
+    if (live.tick !== firstTick.current) load();
+  }, [live.tick]);
   useEffect(() => {
     if (!opts.poll || !path) return;
-    const id = setInterval(() => document.visibilityState === "visible" && load(), opts.poll);
+    const id = setInterval(() => document.visibilityState === "visible" && !connected.current && load(), opts.poll);
     return () => clearInterval(id);
   }, [load, opts.poll, path]);
   return { data, error, loading, reload: load, setData };

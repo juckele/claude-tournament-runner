@@ -42,7 +42,7 @@ try {
   await td.page.goto(`${BASE}/sign-in?next=/new`);
   await signInHere(td, `td-${run}@example.com`);
   await td.page.getByLabel("Name", { exact: true }).fill("Members Night");
-  await td.page.getByLabel("Game").fill("Go");
+  await td.page.getByRole("textbox", { name: /^Game/ }).fill("Go");
   await td.page.getByRole("combobox", { name: /^Who can see it/ }).selectOption("private");
   await td.page.getByText("Nobody else can find or open it.").waitFor();
   await td.page.getByRole("button", { name: "Create tournament" }).click();

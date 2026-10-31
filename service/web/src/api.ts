@@ -38,10 +38,15 @@ export function setLinkToken(t: string | null) {
   linkToken = t;
 }
 
+/** Where the API lives: same origin on the web; set VITE_API_BASE for the Android app build. */
+export const API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
+/** The site's public address, for links people share (inside the app, location.origin is https://localhost). */
+export const PUBLIC_ORIGIN = API_BASE || location.origin;
+
 export async function api<T = any>(method: string, path: string, body?: unknown, opts: { headers?: Record<string, string>; raw?: boolean } = {}): Promise<T> {
   const headers: Record<string, string> = { "x-channel": "api", ...(opts.headers ?? {}) };
   const token = getToken();
-  let url = `/v1${path}`;
+  let url = `${API_BASE}/v1${path}`;
   if (linkToken && !token) url += (url.includes("?") ? "&" : "?") + `t=${encodeURIComponent(linkToken)}`;
   else if (token) headers.authorization = `Bearer ${token}`;
   let payload: BodyInit | undefined;
@@ -100,7 +105,7 @@ export interface Settings {
   game: { name: string; seat_order: string; seat_labels?: string[]; result_mode: "placement" | "score"; allow_ties: boolean; higher_is_better: boolean; points: { by_placement: number[]; tie: string } };
   format: { pairing: string; ranking: string; rounds: number | null; games_per_round: number; rematches: string; bye_points: number; min_games_to_rank: number; seed: number };
   reporting: { who_may_report: string; amend_until: string; deadline: string | null };
-  progression: { accept_undisputed_after: string | null; unplayed: string };
+  progression: { auto_advance?: boolean; accept_undisputed_after: string | null; unplayed: string };
   channels: Record<"api" | "td" | "email" | "sms", { enabled: boolean; notify?: string[]; inbound?: boolean }>;
   registration: { mode: string; max_entrants: number | null };
   withdrawal: { unplayed: string; hide: boolean };
