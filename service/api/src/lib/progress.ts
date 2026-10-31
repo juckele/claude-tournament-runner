@@ -1,0 +1,423 @@
+// Round lifecycle (API.md §4.2, §4.4): start, advance, reopen, re-pair, manual pairings, standings.
+import type { Access, EntrantRow } from "./auth";
+import { ApiError, bad, durationMs, Env, invalidState, isObj, newId, now, parseJson } from "./core";
+import { computeStandings, enginePair, loadSnapshotInput, pairRequest, SnapshotInput, StandingRow } from "./engine";
+import { loadMatches, MatchModel, Ruling } from "./matches";
+import type { Settings } from "./settings";
+import { Tx } from "./tx";
+
+export interface PlannedMatch {
+  id: string;
+  board: number;
+  kind: "game" | "bye";
+  bye_reason?: string;
+  seats: string[];
+}
+
+const parseRounds = (s: string) => parseJson<number[]>(s, []);
+
+/** Who plays in round `n`, and how many games each. Requested byes are listed separately. */
+export function roundDemand(settings: Settings, entrants: EntrantRow[], n: number) {
+  const demand: Record<string, number> = {};
+  const requested: string[] = [];
+  for (const e of entrants) {
+    if (e.status !== "active") continue;
+    if (parseRounds(e.requested_byes).includes(n)) {
+      requested.push(e.id);
+      continue;
+    }
+    if (parseRounds(e.availability).includes(n)) continue;
+    if (settings.check_in.required && e.checked_in_round !== n) continue;
+    const d = Math.min(settings.format.games_per_round, e.max_games_per_round ?? Infinity);
+    if (d > 0) demand[e.id] = d;
+  }
+  return { demand, requested };
+}
+
+async function forbiddenPairs(env: Env, tid: string): Promise<[string, string][]> {
+  const r = await env.DB.prepare("SELECT a, b FROM forbidden_pairs WHERE tournament_id = ?").bind(tid).all<{ a: string; b: string }>();
+  return r.results.map((x) => [x.a, x.b]);
+}
+
+/** Ask the engine for round `n` and turn the answer into planned matches (games, then byes). */
+export async function planRound(env: Env, a: Access, inp: SnapshotInput, n: number, allowIncomplete = false): Promise<PlannedMatch[]> {
+  const { demand, requested } = roundDemand(a.settings, inp.entrants, n);
+  if (Object.keys(demand).length + requested.length === 0)
+    throw new ApiError(422, "pairing_failed", `nobody is available to play round ${n}`);
+  const out = await enginePair(env, pairRequest(inp, n, demand, await forbiddenPairs(env, a.t.id)));
+  if (!out.complete && !allowIncomplete)
+    throw new ApiError(422, "pairing_failed", "no valid pairing under the constraints (rematches, forbidden pairs, availability)", {
+      unpaired: out.unpaired,
+      hint: "retry with allow_incomplete: true (unpaired entrants get a zero-point bye), relax format.rematches, or PUT manual pairings",
+    });
+  const planned: PlannedMatch[] = [];
+  let board = 1;
+  for (const seats of out.matches) planned.push({ id: newId("mat"), board: board++, kind: "game", seats });
+  const odd = Object.keys(out.unpaired);
+  for (const e of odd)
+    planned.push({ id: newId("mat"), board: board++, kind: "bye", bye_reason: out.complete ? "odd_count" : "unpaired", seats: [e] });
+  for (const e of requested) planned.push({ id: newId("mat"), board: board++, kind: "bye", bye_reason: "requested", seats: [e] });
+  return planned;
+}
+
+export function stageRoundMatches(tx: Tx, tid: string, roundId: string, n: number, planned: PlannedMatch[]) {
+  const t = now();
+  for (const p of planned) {
+    tx.add(
+      `INSERT INTO matches (id, tournament_id, round_id, round_number, board, kind, bye_reason, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      p.id, tid, roundId, n, p.board, p.kind, p.bye_reason ?? null, p.kind === "bye" ? "confirmed" : "scheduled", t, t,
+    );
+    p.seats.forEach((e, i) => tx.add("INSERT INTO match_seats (match_id, seat, entrant_id) VALUES (?, ?, ?)", p.id, i, e));
+  }
+}
+
+function deadlineFor(settings: Settings, opened: string): string | null {
+  const ms = durationMs(settings.reporting.deadline);
+  return ms ? new Date(Date.parse(opened) + ms).toISOString() : null;
+}
+
+export function stageStandings(tx: Tx, tid: string, round: number, rows: StandingRow[]) {
+  tx.add("DELETE FROM standings WHERE tournament_id = ? AND round_number = ?", tid, round);
+  for (const r of rows) {
+    const { rank, entrant_id, points, ...stats } = r;
+    tx.add(
+      "INSERT INTO standings (tournament_id, round_number, entrant_id, rank, points, stats) VALUES (?, ?, ?, ?, ?, ?)",
+      tid, round, entrant_id, rank, points, JSON.stringify(stats),
+    );
+  }
+}
+
+const pairingsJson = (planned: PlannedMatch[], names: Map<string, string>) =>
+  planned.map((p) => ({ board: p.board, kind: p.kind, bye_reason: p.bye_reason, seats: p.seats.map((e) => ({ entrant_id: e, name: names.get(e) })) }));
+
+// ---------------------------------------------------------------- start
+export async function startTournament(env: Env, a: Access, opts: { dry_run?: boolean; allow_incomplete?: boolean }) {
+  a.requireTD();
+  if (a.t.status !== "registration") throw invalidState(`can't start a tournament that is ${a.t.status}`);
+  const inp = await loadSnapshotInput(env, a.t, a.settings, []);
+  const active = inp.entrants.filter((e) => e.status === "active");
+  if (active.length < 2) throw invalidState("need at least two active entrants to start");
+  const planned = await planRound(env, a, inp, 1, opts.allow_incomplete);
+  const names = new Map(inp.entrants.map((e) => [e.id, e.display_name]));
+  if (opts.dry_run) return { dry_run: true, round: 1, pairings: pairingsJson(planned, names) };
+  const tx = new Tx(env, a.actor);
+  const t = now();
+  const roundId = newId("rnd");
+  tx.guardVersion("tournaments", a.t.id, a.t.version);
+  tx.add("UPDATE tournaments SET status = 'running', registration_open = 0, current_round = 1, version = version + 1, updated_at = ? WHERE id = ?", t, a.t.id);
+  tx.add("INSERT INTO rounds (id, tournament_id, number, status, opened_at, deadline) VALUES (?, ?, 1, 'open', ?, ?)", roundId, a.t.id, t, deadlineFor(a.settings, t));
+  stageRoundMatches(tx, a.t.id, roundId, 1, planned);
+  stageStandings(tx, a.t.id, 0, await computeStandings(env, inp));
+  tx.event("tournament.started", a.t.id, null, { entrants: active.length });
+  tx.event("round.opened", a.t.id, { round: 1 }, { round: 1 });
+  tx.event("pairings.published", a.t.id, { round: 1 }, { round: 1, matches: planned.map((p) => p.id) });
+  await tx.commit();
+  return { round: 1, pairings: pairingsJson(planned, names) };
+}
+
+// ---------------------------------------------------------------- advance
+export interface Blocker {
+  match_id: string;
+  board: number;
+  status: string;
+  reason: string;
+  ready_at?: string;
+}
+
+/** Classify the open round's matches against the progression policy. */
+export function checkRound(settings: Settings, matches: MatchModel[], at: string, override: { reported?: string; scheduled?: string }) {
+  const accept = durationMs(settings.progression.accept_undisputed_after);
+  const unplayed = override.scheduled ?? settings.progression.unplayed;
+  const blockers: Blocker[] = [];
+  const finalise: { m: MatchModel; action: "confirm" | "void" | "double_forfeit" }[] = [];
+  for (const m of matches) {
+    const r = m.row;
+    switch (r.status) {
+      case "confirmed":
+      case "resolved":
+      case "void":
+        break;
+      case "contested":
+        blockers.push({ match_id: r.id, board: r.board, status: r.status, reason: "contested: needs the players to agree or a ruling" });
+        break;
+      case "reported": {
+        const readyAt = accept == null ? null : new Date(Date.parse(r.reported_at!) + accept).toISOString();
+        if (override.reported === "accept" || (readyAt && readyAt <= at)) finalise.push({ m, action: "confirm" });
+        else
+          blockers.push({
+            match_id: r.id, board: r.board, status: r.status,
+            reason: readyAt ? "unconfirmed report is still inside the dispute window" : "waiting for every participant to report",
+            ...(readyAt ? { ready_at: readyAt } : {}),
+          });
+        break;
+      }
+      case "scheduled":
+        if (unplayed === "block") blockers.push({ match_id: r.id, board: r.board, status: r.status, reason: "no result reported" });
+        else finalise.push({ m, action: unplayed as "void" | "double_forfeit" });
+        break;
+    }
+  }
+  const readyAts = blockers.map((b) => b.ready_at).filter(Boolean) as string[];
+  const ready_at = blockers.length && blockers.every((b) => b.ready_at) ? readyAts.sort().at(-1) : null;
+  return { blockers, finalise, ready_at };
+}
+
+export function applyFinalise(tx: Tx, m: MatchModel, action: "confirm" | "void" | "double_forfeit") {
+  if (action === "confirm") {
+    m.row.status = "confirmed";
+    m.write(tx, { finalised_by: "progression" });
+  } else if (action === "void") {
+    m.row.void_reason = "unplayed";
+    m.derive();
+    m.write(tx, { finalised_by: "progression" });
+  } else {
+    const ruling: Ruling = { result: { outcome: "forfeit", forfeiting_seats: [0, 1] }, reason: "unplayed at advance", by: "system", source: "advance", at: now() };
+    m.row.ruling = JSON.stringify(ruling);
+    m.derive();
+    m.write(tx, { finalised_by: "progression" });
+  }
+}
+
+export async function advance(
+  env: Env,
+  a: Access,
+  opts: { dry_run?: boolean; allow_incomplete?: boolean; override?: { reported?: string; scheduled?: string } },
+) {
+  a.requireTD();
+  if (a.t.status !== "running") throw invalidState(`can't advance a tournament that is ${a.t.status}`);
+  const ov = opts.override ?? {};
+  if (ov.reported && ov.reported !== "accept" && ov.reported !== "block") throw bad('override.reported must be "accept" or "block"');
+  if (ov.scheduled && !["block", "void", "double_forfeit"].includes(ov.scheduled)) throw bad('override.scheduled must be "block", "void" or "double_forfeit"');
+  await expireClaims(env, a.t.id);
+  const n = a.t.current_round;
+  const all = await loadMatches(env.DB, a.t.id);
+  const current = all.filter((m) => m.row.round_number === n);
+  const at = now();
+  const { blockers, finalise, ready_at } = checkRound(a.settings, current, at, ov);
+  if (blockers.length) throw new ApiError(409, "round_not_ready", `round ${n} can't close yet`, { round: n, blocking: blockers, ready_at });
+
+  const tx = new Tx(env, a.actor);
+  for (const f of finalise) applyFinalise(tx, f.m, f.action);
+  for (const m of current) m.roundStatus = "closed";
+  const inp = await loadSnapshotInput(env, a.t, a.settings, all);
+  const standings = await computeStandings(env, inp);
+  const last = a.settings.format.rounds != null && n >= a.settings.format.rounds;
+  let planned: PlannedMatch[] = [];
+  if (!last) planned = await planRound(env, a, inp, n + 1, opts.allow_incomplete);
+  const names = new Map(inp.entrants.map((e) => [e.id, e.display_name]));
+  if (opts.dry_run)
+    return {
+      dry_run: true, closes: n, finalised: finalise.map((f) => ({ match_id: f.m.row.id, action: f.action })),
+      completes: last, standings, ...(last ? {} : { round: n + 1, pairings: pairingsJson(planned, names) }),
+    };
+
+  tx.guardVersion("tournaments", a.t.id, a.t.version);
+  tx.add("UPDATE rounds SET status = 'closed', closed_at = ? WHERE tournament_id = ? AND number = ?", at, a.t.id, n);
+  stageStandings(tx, a.t.id, n, standings);
+  tx.event("round.closed", a.t.id, { round: n }, { round: n });
+  tx.event("standings.changed", a.t.id, null, { after_round: n });
+  if (last) {
+    tx.add("UPDATE tournaments SET status = 'complete', version = version + 1, updated_at = ? WHERE id = ?", at, a.t.id);
+    tx.event("tournament.completed", a.t.id, null, { rounds: n });
+  } else {
+    const roundId = newId("rnd");
+    tx.add("UPDATE tournaments SET current_round = ?, version = version + 1, updated_at = ? WHERE id = ?", n + 1, at, a.t.id);
+    tx.add("INSERT INTO rounds (id, tournament_id, number, status, opened_at, deadline) VALUES (?, ?, ?, 'open', ?, ?)", roundId, a.t.id, n + 1, at, deadlineFor(a.settings, at));
+    stageRoundMatches(tx, a.t.id, roundId, n + 1, planned);
+    tx.event("round.opened", a.t.id, { round: n + 1 }, { round: n + 1 });
+    tx.event("pairings.published", a.t.id, { round: n + 1 }, { round: n + 1, matches: planned.map((p) => p.id) });
+  }
+  await tx.commit();
+  return { closed: n, completed: last, standings, ...(last ? {} : { round: n + 1, pairings: pairingsJson(planned, names) }) };
+}
+
+// ---------------------------------------------------------------- reopen (undo advance)
+export async function reopenRound(env: Env, a: Access, n: number) {
+  a.requireTD();
+  if (!["running", "complete", "paused"].includes(a.t.status)) throw invalidState(`can't reopen rounds of a tournament that is ${a.t.status}`);
+  const cur = a.t.current_round;
+  const completeLast = a.t.status === "complete" && n === cur;
+  if (!completeLast && n !== cur - 1) throw invalidState("only the most recently closed round can be reopened");
+  const all = await loadMatches(env.DB, a.t.id);
+  const next = all.filter((m) => m.row.round_number === n + 1);
+  if (next.some((m) => m.row.kind === "game" && (m.hasAnyReport() || m.row.ruling)))
+    throw invalidState(`round ${n + 1} already has results; it can't be undone`);
+  const tx = new Tx(env, a.actor);
+  const at = now();
+  tx.guardVersion("tournaments", a.t.id, a.t.version);
+  if (!completeLast) {
+    tx.add("DELETE FROM report_revisions WHERE match_id IN (SELECT id FROM matches WHERE tournament_id = ? AND round_number = ?)", a.t.id, n + 1);
+    tx.add("DELETE FROM claims WHERE match_id IN (SELECT id FROM matches WHERE tournament_id = ? AND round_number = ?)", a.t.id, n + 1);
+    tx.add("DELETE FROM comments WHERE match_id IN (SELECT id FROM matches WHERE tournament_id = ? AND round_number = ?)", a.t.id, n + 1);
+    tx.add("DELETE FROM match_seats WHERE match_id IN (SELECT id FROM matches WHERE tournament_id = ? AND round_number = ?)", a.t.id, n + 1);
+    tx.add("DELETE FROM matches WHERE tournament_id = ? AND round_number = ?", a.t.id, n + 1);
+    tx.add("DELETE FROM rounds WHERE tournament_id = ? AND number = ?", a.t.id, n + 1);
+  }
+  tx.add("DELETE FROM standings WHERE tournament_id = ? AND round_number = ?", a.t.id, n);
+  tx.add("UPDATE rounds SET status = 'open', closed_at = NULL WHERE tournament_id = ? AND number = ?", a.t.id, n);
+  tx.add("UPDATE tournaments SET status = 'running', current_round = ?, version = version + 1, updated_at = ? WHERE id = ?", n, at, a.t.id);
+  // Undo what the advance finalised: progression confirmations, unplayed voids and double forfeits.
+  for (const m of all.filter((x) => x.row.round_number === n)) {
+    m.roundStatus = "open";
+    const ruling = m.ruling;
+    if (m.row.void_reason === "unplayed") m.row.void_reason = null;
+    if (ruling?.source === "advance") m.row.ruling = null;
+    const before = JSON.stringify(m.row);
+    m.derive();
+    if (JSON.stringify(m.row) !== before) m.write(tx, { reopened: true });
+  }
+  tx.event("round.reopened", a.t.id, { round: n }, { round: n, removed_round: completeLast ? null : n + 1 });
+  await tx.commit();
+  return { round: n, status: "open" };
+}
+
+// ---------------------------------------------------------------- re-pair / manual pairings
+async function requireFreshRound(env: Env, a: Access, n: number) {
+  a.requireTD();
+  if (a.t.status !== "running" && a.t.status !== "paused") throw invalidState(`tournament is ${a.t.status}`);
+  if (n !== a.t.current_round) throw invalidState("only the current open round can be re-paired");
+  const all = await loadMatches(env.DB, a.t.id);
+  const cur = all.filter((m) => m.row.round_number === n);
+  if (cur.some((m) => m.row.kind === "game" && (m.hasAnyReport() || m.row.ruling)))
+    throw invalidState(`round ${n} already has results; pairings can't change`);
+  const round = await env.DB.prepare("SELECT id FROM rounds WHERE tournament_id = ? AND number = ?").bind(a.t.id, n).first<{ id: string }>();
+  return { all, round: round!.id };
+}
+
+function stageReplace(tx: Tx, a: Access, n: number, roundId: string, planned: PlannedMatch[], manual: boolean) {
+  tx.guardVersion("tournaments", a.t.id, a.t.version);
+  tx.add("UPDATE tournaments SET version = version + 1, updated_at = ? WHERE id = ?", now(), a.t.id);
+  for (const sql of ["report_revisions", "claims", "comments", "match_seats"])
+    tx.add(`DELETE FROM ${sql} WHERE match_id IN (SELECT id FROM matches WHERE round_id = ?)`, roundId);
+  tx.add("DELETE FROM matches WHERE round_id = ?", roundId);
+  stageRoundMatches(tx, a.t.id, roundId, n, planned);
+  tx.event("pairings.changed", a.t.id, { round: n }, { round: n, manual, matches: planned.map((p) => p.id) });
+}
+
+export async function repairRound(env: Env, a: Access, n: number, opts: { dry_run?: boolean; allow_incomplete?: boolean }) {
+  const { all, round } = await requireFreshRound(env, a, n);
+  const inp = await loadSnapshotInput(env, a.t, a.settings, all.filter((m) => m.row.round_number < n));
+  const planned = await planRound(env, a, inp, n, opts.allow_incomplete);
+  const names = new Map(inp.entrants.map((e) => [e.id, e.display_name]));
+  if (opts.dry_run) return { dry_run: true, round: n, pairings: pairingsJson(planned, names) };
+  const tx = new Tx(env, a.actor);
+  stageReplace(tx, a, n, round, planned, false);
+  await tx.commit();
+  return { round: n, pairings: pairingsJson(planned, names) };
+}
+
+export async function setPairings(env: Env, a: Access, n: number, body: any) {
+  const { all, round } = await requireFreshRound(env, a, n);
+  if (!isObj(body) || !Array.isArray(body.matches)) throw bad("body must be {matches: [{seats: [entrant_id, entrant_id]} | {seats: [entrant_id], kind: \"bye\"}], force?}");
+  const force = body.force === true;
+  const inp = await loadSnapshotInput(env, a.t, a.settings, all);
+  const ents = new Map(inp.entrants.map((e) => [e.id, e]));
+  const met = new Set<string>();
+  for (const m of all) if (m.row.round_number < n && m.row.kind === "game" && m.row.status !== "void") met.add([...m.seats].sort().join("|"));
+  const forb = new Set((await forbiddenPairs(env, a.t.id)).map((p) => [...p].sort().join("|")));
+  const count = new Map<string, number>();
+  const problems: string[] = [];
+  const planned: PlannedMatch[] = body.matches.map((raw: any, i: number) => {
+    const seats = raw?.seats;
+    const kind = raw?.kind === "bye" ? "bye" : "game";
+    if (!Array.isArray(seats) || seats.length !== (kind === "bye" ? 1 : 2)) throw bad(`matches[${i}]: a game has 2 seats, a bye has 1`);
+    for (const e of seats) {
+      const ent = ents.get(e);
+      if (!ent) throw bad(`matches[${i}]: unknown entrant ${e}`);
+      if (ent.status !== "active") problems.push(`${ent.display_name} is ${ent.status}`);
+      count.set(e, (count.get(e) ?? 0) + 1);
+    }
+    if (kind === "game") {
+      if (seats[0] === seats[1]) throw bad(`matches[${i}]: an entrant can't play themselves`);
+      const key = [...seats].sort().join("|");
+      if (met.has(key) && a.settings.format.rematches === "forbid") problems.push(`board ${i + 1} is a rematch`);
+      if (forb.has(key)) problems.push(`board ${i + 1} is a forbidden pairing`);
+    }
+    const s = a.settings.game.seat_order === "irrelevant" && kind === "game" ? [...seats].sort() : seats;
+    return { id: newId("mat"), board: i + 1, kind, bye_reason: kind === "bye" ? raw.bye_reason ?? "odd_count" : undefined, seats: s };
+  });
+  for (const [e, c] of count) {
+    const cap = Math.min(a.settings.format.games_per_round, ents.get(e)!.max_games_per_round ?? Infinity);
+    if (c > Math.max(cap, 1)) problems.push(`${ents.get(e)!.display_name} is paired ${c} times`);
+  }
+  if (problems.length && !force) throw new ApiError(422, "pairing_failed", "manual pairings break the tournament's rules", { problems, hint: "send force: true to use them anyway" });
+  const tx = new Tx(env, a.actor);
+  stageReplace(tx, a, n, round, planned, true);
+  await tx.commit();
+  return { round: n, pairings: pairingsJson(planned, new Map(inp.entrants.map((e) => [e.id, e.display_name]))), warnings: problems };
+}
+
+// ---------------------------------------------------------------- standings
+export async function recomputeStandings(env: Env, a: Access, tx?: Tx) {
+  const n = a.t.status === "complete" ? a.t.current_round : a.t.current_round - 1;
+  const all = await loadMatches(env.DB, a.t.id);
+  const inp = await loadSnapshotInput(env, a.t, a.settings, all.filter((m) => m.row.round_number <= n && m.roundStatus === "closed"));
+  const rows = await computeStandings(env, inp);
+  const own = !tx;
+  tx ??= new Tx(env, a.actor);
+  stageStandings(tx, a.t.id, Math.max(n, 0), rows);
+  tx.event("standings.changed", a.t.id, null, { after_round: Math.max(n, 0), recomputed: true });
+  if (own) await tx.commit();
+  return { after_round: Math.max(n, 0), standings: rows };
+}
+
+// ---------------------------------------------------------------- claims expiry
+/** Pending no-show claims past their window become forfeits (API.md §5.8). Idempotent. */
+export async function expireClaims(env: Env, tournamentId?: string) {
+  const at = now();
+  const q = tournamentId
+    ? env.DB.prepare("SELECT * FROM claims WHERE status = 'pending' AND expires_at <= ? AND tournament_id = ?").bind(at, tournamentId)
+    : env.DB.prepare("SELECT * FROM claims WHERE status = 'pending' AND expires_at <= ? LIMIT 200").bind(at);
+  const claims = (await q.all<any>()).results;
+  for (const c of claims) {
+    const { loadMatch } = await import("./matches");
+    const m = await loadMatch(env.DB, c.tournament_id, c.match_id);
+    const tx = new Tx(env, { user_id: null, role: "system", channel: "api" });
+    tx.add("UPDATE claims SET status = 'accepted', resolved_by = 'expiry', resolved_at = ? WHERE id = ? AND status = 'pending'", at, c.id);
+    if (!m.row.ruling && m.roundStatus === "open") {
+      const forfeiting = m.seats.map((e, i) => (e === c.claimant_id ? -1 : i)).filter((i) => i >= 0);
+      const ruling: Ruling = { result: { outcome: "forfeit", forfeiting_seats: forfeiting }, reason: `${c.kind} claim not answered in time`, by: "system", source: "claim", at };
+      m.row.ruling = JSON.stringify(ruling);
+      m.derive();
+      m.write(tx, { claim_id: c.id });
+    }
+    tx.event("match.claim_resolved", c.tournament_id, { match_id: c.match_id }, { claim_id: c.id, status: "accepted", by: "expiry" });
+    try {
+      await tx.commit();
+    } catch (err) {
+      console.error("claim expiry failed", c.id, err);
+    }
+  }
+  return claims.length;
+}
+
+/** Void (or forfeit) an entrant's unplayed games in open rounds after a withdrawal. */
+export async function voidUnplayed(env: Env, tx: Tx, tid: string, entrantId: string, mode: "void" | "forfeit") {
+  const ms = (await loadMatches(env.DB, tid)).filter((m) => m.roundStatus === "open" && m.row.kind === "game" && m.seats.includes(entrantId));
+  let n = 0;
+  for (const m of ms) {
+    if (m.row.status !== "scheduled") continue;
+    if (mode === "void") m.row.void_reason = "withdrawal";
+    else {
+      const ruling: Ruling = { result: { outcome: "forfeit", forfeiting_seats: [m.seats.indexOf(entrantId)] }, reason: "withdrawal", by: tx.actor.user_id ?? "system", source: "director", at: now() };
+      m.row.ruling = JSON.stringify(ruling);
+    }
+    m.derive();
+    m.write(tx, { reason: "withdrawal" });
+    n++;
+  }
+  return n;
+}
+
+/** Void every game of a disqualified entrant (disqualification.results = void). */
+export async function voidAll(env: Env, tx: Tx, tid: string, entrantId: string) {
+  const ms = (await loadMatches(env.DB, tid)).filter((m) => m.row.kind === "game" && m.seats.includes(entrantId));
+  for (const m of ms) {
+    if (m.row.status === "void") continue;
+    m.row.void_reason = "disqualification";
+    m.derive();
+    m.write(tx, { reason: "disqualification" });
+  }
+  return ms.length;
+}

@@ -1,0 +1,38 @@
+name = "tournament-api"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+PUBLIC_URL = "http://localhost:8787"   # base URL used in links sent to players
+EMAIL_FROM = "Tournaments <tournaments@example.com>"
+DEV_MODE = "0"                         # "1" returns login codes in responses and logs outgoing messages
+
+# Secrets (wrangler secret put …):
+#   LINK_SECRET          HMAC key for one-tap report links
+#   CHANNEL_TOKEN        bearer token for external channel adapters (chn_…)
+#   INBOUND_EMAIL_SECRET shared secret for POST /v1/inbound/email
+#   RESEND_API_KEY       outgoing email (optional; without it email is logged only)
+#   TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM   SMS (optional)
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tournaments"
+database_id = "00000000-0000-0000-0000-000000000000"   # replace after `wrangler d1 create tournaments`
+migrations_dir = "migrations"
+
+[[queues.producers]]
+binding = "OUTBOX"
+queue = "tournament-events"
+
+[[queues.consumers]]
+queue = "tournament-events"
+max_batch_size = 25
+max_retries = 5
+
+[[services]]
+binding = "ENGINE"
+service = "tournament-engine"
+
+[triggers]
+crons = ["*/15 * * * *"]   # expire no-show claims, flag overdue matches

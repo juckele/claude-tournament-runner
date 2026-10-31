@@ -73,6 +73,13 @@ it closes the group phase and lists who advances. A worked 13-player example
 (byes, a weekly limit of 1, a withdrawal, late and missing reports) is in
 [`examples/league/`](examples/league/).
 
+## Hosted tournament service
+
+[`service/`](service/) is a hosted version for real events: a Cloudflare Worker
+API on D1 ([spec](service/API.md)) that runs these same pairers and rankers
+through a Python Worker. Players sign up, get their games and report results
+over the API, email or SMS, and directors run rounds and settle disputes.
+
 ## How a trial works
 
 1. **Field.** Draw N players from an outcome table without replacement.
