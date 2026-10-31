@@ -68,7 +68,7 @@ An OpenAPI file generated from it is the next step.
   - **score:** `{"scores": [21, 17]}`, one entry per seat. The game profile's
     `higher_is_better` (default true) turns scores into placements.
 - **Special outcomes** apply to any mode and replace the result:
-  `{"outcome": "forfeit", "forfeiting_seats": [1]}`,
+  `{"outcome": "forfeit", "forfeiting_seats": [1]}` (0-based seat indexes; both seats = double forfeit),
   `{"outcome": "void"}` (not played; counts for nobody).
 
 
@@ -131,7 +131,7 @@ Each entrant can also pick which enabled channels contact them
 
 | Principal | How it authenticates | Notes |
 |---|---|---|
-| **User** | `Authorization: Bearer <session token>`. Sessions come from email magic link, SMS one-time code, or OAuth (GitHub). | Normal case. |
+| **User** | `Authorization: Bearer <session token>`. Sessions come from email magic link or SMS one-time code (GitHub OAuth: not built yet). | Normal case. |
 | **Personal API token** | `Authorization: Bearer pat_…`, created by a user. Has scopes and an optional expiry. | Scripts and bots. Never more than the user's own rights. |
 | **Channel adapter** | `Authorization: Bearer chn_…` plus `X-Act-As: <user id>`. | Internal: SMS and email workers. Allowed to act only as a user whose verified contact point the inbound message came from. |
 | **Report link** | `?t=<signed token>` on one URL. | One-tap "report your game" links in notifications. Scoped to one entrant and one match, and expire. |
@@ -422,7 +422,7 @@ TD, on any entrant.
 | POST | `/tournaments/{t}/matches/{m}/dispute` | Contest a match that's already `confirmed`, for example after accepting a wrong report. Sets the status to `contested` and alerts TDs. Allowed until the round closes. |
 | PUT | `/tournaments/{t}/matches/{m}/schedule` | Propose or accept a time and place (for leagues where players arrange games). Both players accept → `scheduled_at` set; a calendar invite goes to whoever opted in. |
 | GET/POST | `/tournaments/{t}/matches/{m}/comments` | Thread on a match (seated players + TDs). Useful context for disputes. |
-| POST | `/tournaments/{t}/matches/{m}/attachments` | Upload evidence: a game record (PGN, replay file), a scoresheet photo. Stored in R2; `attachments.max_mb`. |
+| POST | `/tournaments/{t}/matches/{m}/attachments` | *Not built yet.* Upload evidence: a game record (PGN, replay file), a scoresheet photo. Stored in R2; `attachments.max_mb`. |
 | GET | `/tournaments/{t}/entrants/{e}/calendar.ics` | Subscribable feed of the entrant's rounds and scheduled games. |
 
 **TD-side**
@@ -434,14 +434,14 @@ TD, on any entrant.
 | PATCH | `/tournaments/{t}/rounds/{n}` | Change the round's `deadline` or `starts_at`. Emits `round.rescheduled`. |
 | POST | `/tournaments/{t}/rounds/{n}/repair` | Re-run the pairing engine for an open round with no results yet (for example after a late withdrawal). Supports `dry_run`. |
 | POST | `/tournaments/{t}/results:batch` | Enter many results at once, such as from a paper results sheet. Each item is a ruling or an on-behalf report (`as: "ruling" \| "report"`). All-or-nothing, with a per-item error list. |
-| POST | `/tournaments/{t}/entrants:import` | Bulk sign-up from CSV or TRF. Upserts by email or phone. Supports `dry_run`. |
+| POST | `/tournaments/{t}/entrants:import` | Bulk sign-up from CSV (`name,email,phone,seed,rating`). Upserts by email or phone. Supports `dry_run`. |
 | POST | `/tournaments/{t}/entrants/{e}/adjustments` | Point adjustment or penalty: `{points, reason, round?}`. Shown in standings. |
 | POST | `/tournaments/{t}/entrants/{e}/disqualify` | Like withdraw, but `disqualification.results` decides whether completed games stay or are voided. |
 | POST | `/tournaments/{t}/forbidden-pairings` | Pairs that must never meet (family, same club, team-mates). |
 | POST | `/tournaments/{t}/standings:recompute` | Rebuild standings from results, for example after changing tiebreaks while `running`. |
 | POST | `/tournaments/{t}/clone` | New `draft` with the same settings, roles and (optionally) entrants. For recurring events. |
 | POST | `/tournaments/{t}/transfer-ownership` | Owner hands over the tournament. The recipient must accept. |
-| GET | `/tournaments/{t}/export?format=json\|csv\|trf\|pairlab` | Full export. `pairlab` writes the `league.json` format so `pairlab` studies can analyse real events. |
+| GET | `/tournaments/{t}/export?format=json\|csv\|pairlab` | Full export. `pairlab` writes the `league.json` format so `pairlab` studies can analyse real events. |
 | GET | `/tournaments/{t}/attention` | TD dashboard feed: contested matches, pending claims, overdue reports, pending approvals, failed notifications. |
 
 **Permission matrix additions:** check-in, bye requests, pause/resume (self),
@@ -530,13 +530,47 @@ idempotency(key, principal, response_json, expires_at)
 
 ---
 
-## 8. Out of scope for v1
+## 8. Implementation notes (v1)
+
+What the Worker in `service/api` settled that this spec left open:
+
+- **Extra endpoints.** `POST /me/contacts/{id}/verify {code}`;
+  `POST …/matches/{m}/claims/{c}/accept|reject` (opponent or TD) and
+  `GET …/matches/{m}/claims`; `GET …/entrants/{e}/adjustments`;
+  `POST …/transfer-ownership/accept` (by the recipient) and
+  `DELETE …/transfer-ownership` (withdraw the offer).
+- **Advance / start / repair bodies.** `{dry_run?, allow_incomplete?, override?}`.
+  `allow_incomplete` gives entrants the engine couldn't pair a zero-point
+  `unpaired` bye instead of failing with `422 pairing_failed`.
+- **Bye kinds.** `odd_count` (worth `format.bye_points`), `requested`
+  (`byes.requested_points`), `unpaired` (0).
+- **Private tournaments** are invisible (404) except to roles and entrants, and to
+  someone holding a valid invite code, who may sign up with `{invite}`.
+- **TD-entered contacts are trusted.** A director registering someone with
+  `{name, contacts}` creates a placeholder account whose contacts count as
+  verified, so notifications reach that player before they sign in. Signing
+  in with one of those contacts claims the account.
+- **Calendar feeds** take `?key=` (an HMAC of the entrant id), since calendar
+  apps can't send a bearer token. The entrant resource includes `calendar_url`.
+- **Command grammar.** Results are read from the sender's side: `W`, `L`, `D`
+  or `3-1` (sender first). In score mode only numeric scores are accepted. The
+  board can be left out when the sender has one game. `NOSHOW <board>` files a
+  claim. `@<code>` (the last 6 characters of the tournament id) picks a tournament.
+- **Engine contract.** The ENGINE binding serves `POST /pair`, `POST /rank`
+  and `GET /systems`; see `service/engine/src/engine.py`.
+- **Notifications.** Kinds are `pairings`, `reports`, `contested`, `results`,
+  `announcements` and `reminders`. Email goes through Resend, SMS through
+  Twilio; without credentials, messages are only logged (`deliveries.status = logged`).
+
+## 9. Out of scope for v1
 
 - **Seat counts / multi-player matches.** Not specified. Every match is
   head-to-head (a bye has one seat). If we need N-player games later, they'll
   get a proper design: pairing, result agreement, and what "contested" means
   with more than two reporters.
 - **Team events.** Entrants are individuals.
+- **Match attachments** (R2 uploads) and **GitHub OAuth**: deferred.
+- **TRF import/export**: chess-specific, so not supported.
 - **Version-control reporting.** No git channel. The `pairlab` export format
   still allows offline analysis, and the file-based `pairlab.league` workflow
   remains a separate tool.

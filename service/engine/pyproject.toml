@@ -1,0 +1,8 @@
+[project]
+name = "tournament-engine"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["numpy", "scipy", "networkx"]
+
+[dependency-groups]
+dev = ["workers-py", "pytest"]

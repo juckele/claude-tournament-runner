@@ -1,0 +1,28 @@
+{
+  "name": "tournament-api",
+  "version": "1.0.0",
+  "description": "Tournament service API (Cloudflare Worker + D1)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc -p .",
+    "db:migrate": "wrangler d1 migrations apply tournaments --remote",
+    "db:migrate:local": "wrangler d1 migrations apply tournaments --local"
+  },
+  "dependencies": {
+    "hono": "^4.13.14",
+    "postal-mime": "^4.2.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.11",
+    "@cloudflare/workers-types": "^5.20261031.1",
+    "@vitest/runner": "^4.1.12",
+    "@vitest/snapshot": "^4.1.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.12",
+    "wrangler": "^4.156.0"
+  },
+  "type": "module",
+  "private": true
+}
