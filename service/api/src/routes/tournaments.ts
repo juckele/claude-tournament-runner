@@ -1,7 +1,7 @@
 // Tournaments: CRUD, lifecycle, roles, channels, webhooks, export, attention, batch ops (API.md §5.2, §5.7, §5.8).
 import { Hono } from "hono";
 import { Access, loadAccess, requireUser, Role, TournamentRow } from "../lib/auth";
-import { ApiError, bad, checkIfMatch, etag, forbidden, invalidState, isObj, newId, normaliseEmail, normalisePhone, notFound, now, parseJson, randomToken } from "../lib/core";
+import { ApiError, bad, checkIfMatch, etag, forbidden, invalidState, isObj, isoOrNull, newId, normaliseEmail, normalisePhone, notFound, now, parseJson, randomToken } from "../lib/core";
 import { engineSystems, parseSettings } from "../lib/engine";
 import { importEntrants } from "../lib/entrants";
 import { loadMatches, MatchModel, matchJson, requireSeated, Ruling } from "../lib/matches";
@@ -374,21 +374,63 @@ tournaments.delete("/tournaments/:t/roles/:user", async (c) => {
   return c.body(null, 204);
 });
 
+/**
+ * Invites: one-use codes, or multi-use sign-up links (`uses: null`) that a director prints as a
+ * QR code. Either opens a private tournament to the holder and lets them join.
+ */
 tournaments.post("/tournaments/:t/invites", async (c) => {
   const a = await access(c);
   a.requireTD();
   const b = await body(c);
   const n = Math.min(Number.isInteger(b.count) ? b.count : 1, 100);
+  if (b.uses !== undefined && b.uses !== null && !(Number.isInteger(b.uses) && b.uses >= 1)) throw bad("uses must be a whole number >= 1, or null for unlimited");
+  const uses = b.uses === undefined ? 1 : b.uses;
+  const expires = isoOrNull(b.expires_at, "expires_at");
+  const label = typeof b.label === "string" && b.label.trim() ? b.label.trim().slice(0, 100) : null;
   const codes: string[] = [];
   const tx = new Tx(c.env, a.actor);
   for (let i = 0; i < n; i++) {
-    const code = randomToken(6);
+    const code = randomToken(9);
     codes.push(code);
-    tx.add("INSERT INTO invites (code, tournament_id, uses_left, expires_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-      code, a.t.id, Number.isInteger(b.uses) ? b.uses : 1, b.expires_at ?? null, a.p.user_id, now());
+    tx.add("INSERT INTO invites (code, tournament_id, uses_left, expires_at, label, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      code, a.t.id, uses, expires, label, a.p.user_id, now());
   }
+  tx.event("tournament.invites_created", a.t.id, null, { count: n, uses, label });
   await tx.commit();
-  return c.json({ invites: codes.map((code) => ({ code, uses: Number.isInteger(b.uses) ? b.uses : 1, expires_at: b.expires_at ?? null })) }, 201);
+  return c.json({ invites: codes.map((code) => inviteJson(c, a.t.id, { code, uses_left: uses, expires_at: expires, label, signups: 0, created_at: now() })) }, 201);
+});
+
+function inviteJson(c: any, tid: string, r: any) {
+  return {
+    code: r.code,
+    label: r.label,
+    uses_left: r.uses_left,
+    expires_at: r.expires_at,
+    signups: r.signups ?? 0,
+    created_at: r.created_at,
+    url: `${c.env.PUBLIC_URL}/t/${tid}?invite=${encodeURIComponent(r.code)}`,
+  };
+}
+
+tournaments.get("/tournaments/:t/invites", async (c) => {
+  const a = await access(c);
+  a.requireTD();
+  const r = await c.env.DB.prepare(
+    `SELECT i.*, (SELECT COUNT(*) FROM entrants e WHERE e.tournament_id = i.tournament_id AND e.invite_code = i.code) AS signups
+     FROM invites i WHERE i.tournament_id = ? ORDER BY i.created_at DESC`,
+  ).bind(a.t.id).all<any>();
+  return c.json({ invites: r.results.map((x) => inviteJson(c, a.t.id, x)) });
+});
+
+/** Revoke: the link stops working; people who already joined through it stay entered. */
+tournaments.delete("/tournaments/:t/invites/:code", async (c) => {
+  const a = await access(c);
+  a.requireTD();
+  const tx = new Tx(c.env, a.actor);
+  tx.add("DELETE FROM invites WHERE tournament_id = ? AND code = ?", a.t.id, c.req.param("code"));
+  tx.event("tournament.invite_revoked", a.t.id, null, { code: c.req.param("code") });
+  await tx.commit();
+  return c.body(null, 204);
 });
 
 tournaments.post("/tournaments/:t/transfer-ownership", async (c) => {

@@ -14,14 +14,25 @@ export function Games() {
   const games = useApi<{ matches: Match[] }>(mine && t.current_round ? `/tournaments/${t.id}/entrants/me/matches?round=current` : null, { poll: 30000 });
   const entry = useApi<any>(mine ? `/tournaments/${t.id}/entrants/me` : null);
 
-  if (!me)
-    return (
+  if (!me) {
+    const back = encodeURIComponent(location.pathname + location.search);
+    const invited = new URLSearchParams(location.search).has("invite");
+    return invited ? (
+      <Section title="You're invited">
+        <div className="panel stack">
+          <p>Sign in to join {t.name}. It only takes an email address or a phone number.</p>
+          {t.description ? <p className="muted" style={{ whiteSpace: "pre-wrap", maxWidth: "70ch" }}>{t.description}</p> : null}
+          <Link className="btn btn-primary" to={`/sign-in?next=${back}`} style={{ justifySelf: "start" }}>Sign in to join</Link>
+        </div>
+      </Section>
+    ) : (
       <Empty title="Sign in to see your games">
-        <Link className="btn btn-primary" to={`/sign-in?next=/t/${t.id}`}>Sign in</Link>
+        <Link className="btn btn-primary" to={`/sign-in?next=${back}`}>Sign in</Link>
       </Empty>
     );
+  }
 
-  if (!mine) return <Join onJoined={() => { reload(); reloadEntrants(); }} />;
+  if (!mine) return <Join onJoined={() => { history.replaceState(null, "", location.pathname); reload(); reloadEntrants(); }} />;
 
   const e = entry.data;
   return (
@@ -115,6 +126,7 @@ function Join({ onJoined }: { onJoined: () => void }) {
   const { busy, run } = useAction();
   const [name, setName] = useState(me?.display_name ?? "");
   const [invite, setInvite] = useState(() => new URLSearchParams(location.search).get("invite") ?? "");
+  const fromLink = new URLSearchParams(location.search).has("invite");
   const canJoin = t.status === "registration" && t.registration_open;
   async function join(e: FormEvent) {
     e.preventDefault();
@@ -136,7 +148,7 @@ function Join({ onJoined }: { onJoined: () => void }) {
         <Field label="Name on the pairings">
           <input required value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
         </Field>
-        {t.settings.registration.mode === "invite" ? (
+        {t.settings.registration.mode === "invite" && !fromLink ? (
           <Field label="Invite code" hint="Your director gives these out.">
             <input required value={invite} onChange={(e) => setInvite(e.target.value)} />
           </Field>

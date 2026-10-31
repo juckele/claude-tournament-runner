@@ -20,6 +20,7 @@ falls back to the app.
 | Players | Sign in with an emailed link or a texted code; join; see their board, opponent and side; report or change a result; confirm an opponent's report; claim a no-show; dispute a result; suggest a time; set availability, byes and how they're contacted; withdraw. |
 | Directors | Create a tournament; open registration; preview and publish pairings; see which games block the next round and why; rule on disputes; accept or reject claims; approve, add, import, seed, penalise, withdraw or disqualify players; re-pair or undo a round; message everyone; manage settings, directors and webhooks; export. |
 | Anyone with a report link | Report that one game without signing in. |
+| Anyone with a sign-up QR code | See a private tournament, sign in and join it. Directors make QR codes on the Desk, then print a poster, download the image or copy the link, and see who joined through each code. |
 
 ## Layout
 
@@ -87,10 +88,11 @@ http://localhost:5173 (it proxies `/v1` to :8787). Rebuilding `web/dist` while
 Tests:
 
 ```
-cd api && npm test             # 16 integration tests (workerd + D1 + real engine via python3)
+cd api && npm test             # 18 integration tests (workerd + D1 + real engine via python3)
 cd engine && python3 -m pytest -q tests
-cd web && npm run e2e          # browser run against ./dev.sh: a director on desktop and
-                               # players on phones go from sign-in to final standings;
+cd web && npm run e2e          # browser runs against ./dev.sh: a whole event (director on desktop,
+                               # players on phones), and a private event joined by scanning its
+                               # sign-up QR code (decoded from the rendered image);
                                # screenshots land in web/e2e/out/
 ```
 

@@ -5,6 +5,7 @@ import { describeResult, duration, when } from "../format";
 import { useAction, useApi, useToast } from "../hooks";
 import { Board, Button, Dialog, Empty, ErrorNote, Field, Loading, Section, StatusPill } from "../ui";
 import { RulingForm } from "./Match";
+import { SignupLinks } from "./SignupLinks";
 import { useT } from "./Tournament";
 
 interface Blocker { match_id: string; board: number; status: string; reason: string; ready_at?: string }
@@ -22,6 +23,7 @@ export function Desk() {
   const { t, td } = useT();
   const att = useApi<Attention>(td && t.current_round ? `/tournaments/${t.id}/attention` : null, { poll: 20000 });
   if (!td) return <Navigate to={`/t/${t.id}`} replace />;
+  const needsLinks = t.visibility === "private" || t.settings.registration.mode === "invite";
   return (
     <div className="grid-2">
       <div>
@@ -29,7 +31,9 @@ export function Desk() {
         {t.current_round ? <RoundProgress /> : null}
       </div>
       <div>
+        {needsLinks && !t.current_round ? <SignupSection /> : null}
         {t.current_round ? <AttentionFeed att={att} /> : null}
+        {needsLinks && t.current_round && t.status !== "complete" && t.status !== "cancelled" ? <SignupSection /> : null}
         <Announce />
         <Share />
       </div>
@@ -332,8 +336,6 @@ function Announce() {
 function Share() {
   const { t } = useT();
   const toast = useToast();
-  const { busy, run } = useAction();
-  const [invites, setInvites] = useState<string[]>([]);
   const url = `${location.origin}/t/${t.id}`;
   const copy = async (text: string) => {
     try {
@@ -346,32 +348,26 @@ function Share() {
   return (
     <Section title="Share and export">
       <div className="panel stack">
-        <Field label="Tournament page">
+        <Field label="Tournament page" hint={t.visibility === "private" ? "Private: this only works for people already entered. Use a sign-up QR code to invite new players." : undefined}>
           <div className="row" style={{ flexWrap: "nowrap" }}>
             <input readOnly value={url} onFocus={(e) => e.target.select()} />
             <Button onClick={() => copy(url)}>Copy</Button>
           </div>
         </Field>
-        {t.settings.registration.mode === "invite" || t.visibility === "private" ? (
-          <div className="stack">
-            <Button busy={busy} style={{ justifySelf: "start" }} onClick={async () => {
-              const r = await run(() => api<{ invites: { code: string }[] }>("POST", `/tournaments/${t.id}/invites`, { count: 1, uses: 1 }));
-              if (r) setInvites((x) => [...r.invites.map((i) => `${url}?invite=${i.code}`), ...x]);
-            }}>Make a one-use invite link</Button>
-            {invites.map((u) => (
-              <div key={u} className="row" style={{ flexWrap: "nowrap" }}>
-                <input readOnly value={u} onFocus={(e) => e.target.select()} />
-                <Button onClick={() => copy(u)}>Copy</Button>
-              </div>
-            ))}
-          </div>
-        ) : null}
         <div className="row">
           <Button kind="quiet" onClick={() => download(`/tournaments/${t.id}/export?format=csv`, `${t.code}.csv`)}>Download results (CSV)</Button>
           <Button kind="quiet" onClick={() => download(`/tournaments/${t.id}/export?format=json`, `${t.code}.json`)}>Full export (JSON)</Button>
           <Button kind="quiet" onClick={() => download(`/tournaments/${t.id}/export?format=pairlab`, `${t.code}-league.json`)}>pairlab league file</Button>
         </div>
       </div>
+    </Section>
+  );
+}
+
+function SignupSection() {
+  return (
+    <Section title="Sign-up QR code">
+      <div className="panel"><SignupLinks /></div>
     </Section>
   );
 }

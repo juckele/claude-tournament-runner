@@ -3,6 +3,7 @@ import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useSession } from "./hooks";
 import { Home } from "./pages/Home";
 import { NewTournament } from "./pages/NewTournament";
+import { Poster } from "./pages/Poster";
 import { Profile } from "./pages/Profile";
 import { SignIn, VerifyLink } from "./pages/SignIn";
 import { TournamentRoutes } from "./pages/Tournament";
@@ -13,6 +14,7 @@ export function App() {
     <Routes>
       <Route path="/sign-in" element={<SignIn />} />
       <Route path="/sign-in/verify" element={<VerifyLink />} />
+      <Route path="/poster/:tid/:code" element={<RequireSession><Poster /></RequireSession>} />
       <Route path="/t/:tid/*" element={<Shell><TournamentRoutes /></Shell>} />
       <Route path="/" element={<RequireSession><Shell><Home /></Shell></RequireSession>} />
       <Route path="/new" element={<RequireSession><Shell narrow><NewTournament /></Shell></RequireSession>} />

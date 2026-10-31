@@ -544,8 +544,20 @@ What the Worker in `service/api` settled that this spec left open:
   `unpaired` bye instead of failing with `422 pairing_failed`.
 - **Bye kinds.** `odd_count` (worth `format.bye_points`), `requested`
   (`byes.requested_points`), `unpaired` (0).
-- **Private tournaments** are invisible (404) except to roles and entrants, and to
-  someone holding a valid invite code, who may sign up with `{invite}`.
+- **Private tournaments and sign-up links.** A private tournament is invisible
+  (404) except to its roles and entrants, and to anyone holding a valid invite
+  code. That includes signed-out visitors, so a scanned QR code can show the
+  event before asking them to sign in, though only `GET /tournaments/{t}?invite=`
+  works for them.
+  - **Creating:** `POST …/invites {uses, label?, expires_at?, count?}`.
+    `uses: null` makes a multi-use link for a printed QR code; the default is
+    one use.
+  - **Managing:** `GET …/invites` lists them with how many people joined
+    through each. `DELETE …/invites/{code}` revokes one; people who already
+    joined stay entered.
+  - **Spending:** a sign-up that relies on an invite always spends one use,
+    even when registration is `open`. A guard makes the last use go to
+    exactly one person.
 - **TD-entered contacts are trusted.** A director registering someone with
   `{name, contacts}` creates a placeholder account whose contacts count as
   verified, so notifications reach that player before they sign in. Signing

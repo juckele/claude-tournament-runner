@@ -150,6 +150,8 @@ export interface EntrantRow {
 }
 
 export class Access {
+  /** Visible only because the caller holds a valid invite (a private tournament's sign-up link). */
+  viaInvite = false;
   constructor(
     public p: Principal,
     public t: TournamentRow,
@@ -231,11 +233,13 @@ export async function loadAccess(env: Env, p: Principal, tournamentId: string, o
   const a = new Access(p, t, parseJson(t.settings, {} as Settings), role, entrant);
   if (!a.canRead) {
     // A private tournament is visible to someone holding a valid invite code (for signing up).
-    const inv = opts.invite && p.user_id
+    // Signed-out visitors too: a scanned sign-up QR shows the event before asking them to sign in.
+    const inv = opts.invite && p.kind !== "link"
       ? await env.DB.prepare("SELECT 1 FROM invites WHERE code = ? AND tournament_id = ? AND (uses_left IS NULL OR uses_left > 0) AND (expires_at IS NULL OR expires_at > ?)")
           .bind(opts.invite, tournamentId, now()).first()
       : null;
     if (!inv) throw new ApiError(404, "not_found", "tournament not found");
+    a.viaInvite = true;
   }
   return a;
 }
