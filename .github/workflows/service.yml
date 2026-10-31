@@ -1,0 +1,62 @@
+name: Tournament service
+
+on:
+  pull_request:
+    paths: ["service/**", "pairlab/**", "requirements.txt", ".github/workflows/service.yml"]
+  push:
+    branches: [main]
+    paths: ["service/**", "pairlab/**", "requirements.txt", ".github/workflows/service.yml"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            service/api/package-lock.json
+            service/web/package-lock.json
+
+      - name: Engine tests
+        run: python -m pytest -q service/engine/tests
+
+      - name: Web app typecheck and build
+        working-directory: service/web
+        run: |
+          npm ci --legacy-peer-deps
+          npm run build
+
+      - name: API typecheck and tests (workerd + D1 + the real engine)
+        working-directory: service/api
+        run: |
+          npm ci --legacy-peer-deps
+          npm run typecheck
+          npm test
+
+      - name: Browser tests (whole event, private sign-up QR, live updates and auto-pairing)
+        working-directory: service/web
+        run: |
+          npm i --no-save --legacy-peer-deps playwright@1
+          npx playwright install --with-deps chromium
+          (cd .. && ./dev.sh > "$RUNNER_TEMP/dev.log" 2>&1 &)
+          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8787/sign-in >/dev/null && break; sleep 1; done
+          npm run e2e
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-screenshots
+          path: service/web/e2e/out/
+          if-no-files-found: ignore

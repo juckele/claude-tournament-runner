@@ -2,6 +2,7 @@
 import { makeReportLink, TournamentRow } from "./auth";
 import { Env, hmacHex, newId, now, OutboxMessage, parseJson } from "./core";
 import { loadMatch, MatchModel } from "./matches";
+import { sendPush, serviceAccount } from "./push";
 import { Result, seatOutcomes } from "./results";
 import type { Settings } from "./settings";
 
@@ -169,10 +170,29 @@ async function notifyPlayers(env: Env, t: TournamentRow, s: Settings, ev: any) {
         : { r, kind: "announcements", subject: "Tournament cancelled", text: `${t.name} has been cancelled. ${d.reason ?? ""}`.trim() });
     }
   }
-  for (const o of out) await sendToRecipient(env, t, s, ev.id, o.r, o.kind, `[${t.name}] ${o.subject}`, o.text);
+  // Where a tap on a phone notification should land in the app.
+  const path = ev.subject?.match_id ? `/t/${t.id}/m/${ev.subject.match_id}` : `/t/${t.id}`;
+  for (const o of out) await sendToRecipient(env, t, s, ev.id, o.r, o.kind, `[${t.name}] ${o.subject}`, o.text, { title: t.name, body: o.subject, path });
 }
 
-async function sendToRecipient(env: Env, t: TournamentRow, s: Settings, eventId: string, r: Recipient, kind: string, subject: string, text: string) {
+const PUSH_DEFAULT = { enabled: true, notify: ["pairings", "reports", "contested", "results", "announcements", "reminders"] };
+
+async function sendToRecipient(env: Env, t: TournamentRow, s: Settings, eventId: string, r: Recipient, kind: string, subject: string, text: string, push: { title: string; body: string; path: string }) {
+  const pc = s.channels.push ?? PUSH_DEFAULT;
+  if (pc.enabled && pc.notify.includes(kind) && r.prefs.push !== false) {
+    const devices = (await env.DB.prepare("SELECT token FROM devices WHERE user_id = ?").bind(r.user_id).all<{ token: string }>()).results;
+    for (const d of devices) {
+      let status = "logged";
+      let error: string | null = null;
+      if (serviceAccount(env)) {
+        const res = await sendPush(env, d.token, push.title, push.body, push.path).catch((e) => ({ status: "failed" as const, error: String(e) }));
+        status = res.status === "gone" ? "failed" : res.status;
+        error = res.error ?? null;
+        if (res.status === "gone") await env.DB.prepare("DELETE FROM devices WHERE token = ?").bind(d.token).run();
+      } else if (env.DEV_MODE === "1") console.log(`[push → ${d.token.slice(0, 12)}…] ${push.title}: ${push.body} (${push.path})`);
+      await recordDelivery(env, eventId, t.id, "push", `device:${d.token.slice(-8)}`, status, error);
+    }
+  }
   const contacts = (await env.DB.prepare("SELECT id, kind, value FROM contacts WHERE user_id = ? AND verified_at IS NOT NULL").bind(r.user_id).all<any>()).results;
   for (const c of contacts) {
     const ch = c.kind === "email" ? "email" : "sms";

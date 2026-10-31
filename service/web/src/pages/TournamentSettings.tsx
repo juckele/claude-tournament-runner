@@ -143,6 +143,13 @@ export function TournamentSettings() {
             <Field label="Report deadline, in hours after the round opens" hint="Games still open after this are flagged as overdue. Empty for no deadline.">
               <input inputMode="numeric" value={hours(s.reporting.deadline)} onChange={(e) => up("reporting", { deadline: iso(e.target.value) })} />
             </Field>
+            <label className="check">
+              <input type="checkbox" checked={!!s.progression.auto_advance} onChange={(e) => up("progression", { auto_advance: e.target.checked })} />
+              <span>
+                Pair the next round automatically
+                <span className="field-hint" style={{ display: "block" }}>As soon as every game is settled, the round closes and the next one is paired and sent out. Unreported games wait for the deadline. Pause the tournament to stop it.</span>
+              </span>
+            </label>
             <Field label="An unconfirmed result counts after this many hours" hint="When only one player reports and nobody disputes it. Empty means both players must always report.">
               <input inputMode="numeric" value={hours(s.progression.accept_undisputed_after)} onChange={(e) => up("progression", { accept_undisputed_after: iso(e.target.value) })} />
             </Field>

@@ -157,6 +157,29 @@ auth.delete("/me/contacts/:id", async (c) => {
   return c.body(null, 204);
 });
 
+// ---------------------------------------------------------------- phones (push notifications)
+/** The Android app registers its FCM token after sign-in. Re-registering moves a token to this user. */
+auth.post("/me/devices", async (c) => {
+  const uid = requireUser(c.get("p"));
+  const b = await c.req.json().catch(() => ({}));
+  if (typeof b.token !== "string" || b.token.length < 20 || b.token.length > 4096) throw bad("token must be an FCM registration token");
+  if ((b.platform ?? "android") !== "android") throw bad('platform must be "android"');
+  const t = now();
+  await c.env.DB.prepare(
+    `INSERT INTO devices (id, user_id, platform, token, created_at, last_seen_at) VALUES (?, ?, 'android', ?, ?, ?)
+     ON CONFLICT (token) DO UPDATE SET user_id = excluded.user_id, last_seen_at = excluded.last_seen_at`,
+  ).bind(newId("dev"), uid, b.token, t, t).run();
+  return c.json({ registered: true }, 201);
+});
+
+/** Sign-out on the phone: stop notifications to it. */
+auth.delete("/me/devices", async (c) => {
+  const uid = requireUser(c.get("p"));
+  const b = await c.req.json().catch(() => ({}));
+  await c.env.DB.prepare("DELETE FROM devices WHERE user_id = ? AND token = ?").bind(uid, String(b.token ?? "")).run();
+  return c.body(null, 204);
+});
+
 // ---------------------------------------------------------------- personal API tokens
 auth.get("/me/tokens", async (c) => {
   const uid = requireUser(c.get("p"));

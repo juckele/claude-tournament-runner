@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, Navigate } from "react-router-dom";
-import { api, ApiError, download, Match } from "../api";
+import { api, ApiError, download, Match, PUBLIC_ORIGIN } from "../api";
 import { describeResult, duration, when } from "../format";
 import { useAction, useApi, useToast } from "../hooks";
 import { Board, Button, Dialog, Empty, ErrorNote, Field, Loading, Section, StatusPill } from "../ui";
@@ -17,6 +17,7 @@ interface Attention {
   pending_approvals: { id: string; display_name: string }[];
   failed_notifications: { channel: string; target: string; error: string; created_at: string }[];
   advance: { ready: boolean; ready_at: string | null; blocking: Blocker[] } | null;
+  auto_advance?: { on: boolean; failed: boolean };
 }
 
 export function Desk() {
@@ -115,6 +116,16 @@ function Lifecycle({ att, reloadAtt }: { att: Attention | null; reloadAtt: () =>
               Round {t.current_round} is open.{" "}
               {att?.advance ? (att.advance.ready ? "Every game is settled, so you can close it." : att.advance.ready_at ? `It can close at ${when(att.advance.ready_at)} unless someone disputes.` : `${att.advance.blocking.length} game${att.advance.blocking.length === 1 ? "" : "s"} still need${att.advance.blocking.length === 1 ? "s" : ""} a result.`) : null}
             </p>
+            {att?.auto_advance?.on ? (
+              att.auto_advance.failed ? (
+                <div className="note note-error"><p>Auto-pairing couldn't pair round {t.current_round + 1} under your rules (rematches, restrictions or availability). Close the round yourself with the options below, or set pairings by hand.</p></div>
+              ) : (
+                <div className="note note-ok">
+                  <p>Auto-pairing is on: {last ? "the tournament finishes" : `round ${t.current_round + 1} is paired and sent out`} {att.advance?.ready ? "any moment now" : att.advance?.ready_at ? `at ${when(att.advance.ready_at)} if nobody disputes` : "as soon as every game is settled"}.</p>
+                  <Link to={`/t/${t.id}/settings`} className="btn btn-quiet">Change</Link>
+                </div>
+              )
+            ) : null}
             <details>
               <summary className="small" style={{ cursor: "pointer" }}>Options for unfinished games</summary>
               <div className="stack" style={{ marginTop: 10 }}>
@@ -336,7 +347,7 @@ function Announce() {
 function Share() {
   const { t } = useT();
   const toast = useToast();
-  const url = `${location.origin}/t/${t.id}`;
+  const url = `${PUBLIC_ORIGIN}/t/${t.id}`;
   const copy = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);

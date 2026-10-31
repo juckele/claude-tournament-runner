@@ -1,5 +1,6 @@
 // Hono app: error handling, principals, scopes, idempotency, then the route modules.
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { requireWriteScope, resolvePrincipal } from "./lib/auth";
 import type { H } from "./http";
 import { ApiError, now, problem } from "./lib/core";
@@ -7,10 +8,23 @@ import { engineSystems } from "./lib/engine";
 import { auth } from "./routes/auth";
 import { entrants } from "./routes/entrants";
 import { inbound } from "./routes/inbound";
+import { live } from "./routes/live";
 import { matches } from "./routes/matches";
 import { tournaments } from "./routes/tournaments";
 
 export const app = new Hono<H>().basePath("/v1");
+
+// The Android app's WebView calls the API from https://localhost. Bearer tokens, no cookies.
+app.use("*", cors({
+  origin: (origin, c) => {
+    const allowed = ["https://localhost", "capacitor://localhost", ...String(c.env.CORS_ORIGINS ?? "").split(",").map((s: string) => s.trim()).filter(Boolean)];
+    return allowed.includes(origin) ? origin : null;
+  },
+  allowHeaders: ["authorization", "content-type", "idempotency-key", "if-match", "x-channel"],
+  allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  exposeHeaders: ["etag", "idempotent-replayed"],
+  maxAge: 86400,
+}));
 
 app.onError((err, c) => {
   if (err instanceof ApiError) return problem(err);
@@ -61,4 +75,5 @@ app.route("/", tournaments);
 app.route("/", entrants);
 app.route("/", matches);
 app.route("/", inbound);
+app.route("/", live);
 

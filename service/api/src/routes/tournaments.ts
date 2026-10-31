@@ -277,6 +277,13 @@ tournaments.get("/tournaments/:t/attention", async (c) => {
     pending_approvals: approvals.results,
     failed_notifications: failed.results,
     advance: progress ? { ready: progress.blockers.length === 0, ready_at: progress.ready_at, blocking: progress.blockers } : null,
+    auto_advance: {
+      on: !!a.settings.progression.auto_advance,
+      failed: a.settings.progression.auto_advance
+        ? ((await db.prepare("SELECT data FROM events WHERE tournament_id = ? AND type = 'round.auto_advance_failed' AND data LIKE ? ORDER BY id DESC LIMIT 1")
+            .bind(a.t.id, `%"round":${a.t.current_round},%`).first<{ data: string }>()) ? true : false)
+        : false,
+    },
   });
 });
 

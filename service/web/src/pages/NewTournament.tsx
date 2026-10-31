@@ -10,7 +10,7 @@ export function NewTournament() {
   const { refresh } = useSession();
   const systems = useApi<{ pairing: string[]; ranking: string[] }>("/systems");
   const { busy, run } = useAction();
-  const [f, setF] = useState({ name: "", game: "", mode: "placement", ties: true, labels: "", pairing: "swiss", ranking: "score", rounds: "5", visibility: "unlisted", registration: "open" });
+  const [f, setF] = useState({ name: "", game: "", mode: "placement", ties: true, labels: "", pairing: "swiss", ranking: "score", rounds: "5", visibility: "unlisted", registration: "open", auto: false });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setF({ ...f, [k]: e.target.type === "checkbox" ? (e.target as HTMLInputElement).checked : e.target.value });
 
@@ -25,6 +25,7 @@ export function NewTournament() {
           game: { name: f.game || "Game", result_mode: f.mode, allow_ties: f.ties, ...(labels.length === 2 ? { seat_labels: labels } : {}) },
           format: { pairing: f.pairing, ranking: f.ranking, rounds: f.rounds ? Number(f.rounds) : null },
           registration: { mode: f.registration },
+          progression: { auto_advance: f.auto },
         },
       }),
     );
@@ -51,6 +52,7 @@ export function NewTournament() {
           <Field label="Rounds" hint="Leave empty for an open-ended league."><input inputMode="numeric" value={f.rounds} onChange={set("rounds")} /></Field>
         </div>
         <label className="check"><input type="checkbox" checked={f.ties} onChange={set("ties")} /><span>Draws are possible</span></label>
+        <label className="check"><input type="checkbox" checked={f.auto} onChange={set("auto")} /><span>Pair each round automatically once every game is settled</span></label>
         <Field label="Side names" hint="Optional, comma-separated, like White, Black or First, Second. Leave empty if sides don't matter.">
           <input value={f.labels} onChange={set("labels")} />
         </Field>

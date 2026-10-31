@@ -169,8 +169,8 @@ export async function patchEntrant(env: Env, a: Access, e: EntrantRow, body: any
         set("max_games_per_round", v);
         break;
       case "contact_prefs":
-        if (!isObj(v) || !Object.entries(v).every(([kk, vv]) => ["email", "sms"].includes(kk) && typeof vv === "boolean"))
-          throw bad('contact_prefs must look like {"email": true, "sms": false}');
+        if (!isObj(v) || !Object.entries(v).every(([kk, vv]) => ["email", "sms", "push"].includes(kk) && typeof vv === "boolean"))
+          throw bad('contact_prefs must look like {"email": true, "sms": false, "push": true}');
         set("contact_prefs", JSON.stringify(v));
         break;
       case "seed":

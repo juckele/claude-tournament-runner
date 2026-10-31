@@ -1,0 +1,21 @@
+{
+  "name": "tournament-android",
+  "private": true,
+  "description": "Android app for the tournament service: the web app (../web) in a Capacitor shell",
+  "scripts": {
+    "sync": "cap sync android",
+    "build:web": "cd ../web && npm run build",
+    "open": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/barcode-scanner": "^3.1.3",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/push-notifications": "^8.1.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.0",
+    "typescript": "^7.0.2"
+  }
+}

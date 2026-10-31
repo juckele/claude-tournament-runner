@@ -1,7 +1,7 @@
 import QRCode from "qrcode";
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../api";
+import { api, PUBLIC_ORIGIN } from "../api";
 import { when } from "../format";
 import { useAction, useApi, useToast } from "../hooks";
 import { Button, Dialog, Field } from "../ui";
@@ -10,7 +10,7 @@ import { useT } from "./Tournament";
 export interface Invite { code: string; label: string | null; uses_left: number | null; expires_at: string | null; signups: number; created_at: string }
 
 /** Where a sign-up link points. Built from this page's origin so dev servers on other ports work too. */
-export const signupUrl = (tid: string, code: string) => `${location.origin}/t/${tid}?invite=${encodeURIComponent(code)}`;
+export const signupUrl = (tid: string, code: string) => `${PUBLIC_ORIGIN}/t/${tid}?invite=${encodeURIComponent(code)}`;
 
 const QR_OPTS = { errorCorrectionLevel: "M" as const, margin: 2, color: { dark: "#16202e", light: "#ffffff" } };
 

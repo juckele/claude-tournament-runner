@@ -79,13 +79,53 @@ export class Tx {
 }
 
 export async function publish(env: Env, events: EventRecord[]) {
-  if (!events.length || !env.OUTBOX) return;
+  if (!events.length) return;
+  await notifyHubs(env, events);
+  if (!env.OUTBOX) return;
   try {
     await env.OUTBOX.sendBatch(events.map((e) => ({ body: { kind: "event" as const, event_id: e.id } })));
   } catch (err) {
     // The events are already in the table (audit log); only their notifications are lost.
     console.error("outbox enqueue failed", err);
   }
+}
+
+/** Tell each tournament's hub what changed: it pushes to live clients and re-checks auto-pairing. */
+async function notifyHubs(env: Env, events: EventRecord[]) {
+  const byT = new Map<string, EventRecord[]>();
+  for (const e of events) if (e.tournament_id) (byT.get(e.tournament_id) ?? byT.set(e.tournament_id, []).get(e.tournament_id)!).push(e);
+  for (const [tid, evs] of byT) {
+    const slim = evs.map(liveEvent);
+    if (env.HUB_LOCAL) {
+      env.HUB_LOCAL.broadcast(tid, slim);
+      continue;
+    }
+    if (!env.HUB) continue;
+    try {
+      await env.HUB.get(env.HUB.idFromName(tid)).fetch("https://hub/events", {
+        method: "POST",
+        body: JSON.stringify({ tournament_id: tid, events: slim }),
+      });
+    } catch (err) {
+      console.error("hub notify failed", tid, err);
+    }
+  }
+}
+
+/** What live clients get: the kind of change and which things it touched. Never results or notes. */
+export function liveEvent(e: EventRecord) {
+  const s = (e.subject ?? {}) as Record<string, unknown>;
+  const d = e.data as Record<string, unknown>;
+  return {
+    id: e.id,
+    type: e.type,
+    at: e.created_at,
+    round: (d.round ?? s.round ?? null) as number | null,
+    match_id: (s.match_id ?? null) as string | null,
+    entrant_id: (s.entrant_id ?? null) as string | null,
+    /** The kind of actor, never who: lets a director's page tell automatic changes from their own. */
+    by: e.actor.role,
+  };
 }
 
 /** Run `fn` with a fresh Tx; retry once on a version conflict (API.md §7). */

@@ -1,0 +1,105 @@
+name: Android app
+
+on:
+  pull_request:
+    paths: ["service/web/**", "service/android/**", ".github/workflows/android.yml"]
+  push:
+    branches: [main]
+    paths: ["service/web/**", "service/android/**", ".github/workflows/android.yml"]
+  workflow_dispatch:
+
+# Repository settings this uses (all optional):
+#   vars.API_BASE                 the service's public URL (default https://tournaments.example.com)
+#   vars.ANDROID_APP_ID           application id (default app.pairingdesk.android)
+#   secrets.GOOGLE_SERVICES_JSON  Firebase config: enables push notifications in the build
+#   secrets.ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+#                                 release signing; without them only the debug APK is built
+
+jobs:
+  build:
+    # ubuntu-24.04 ships the Android SDK (ANDROID_HOME); pinned so the image can't drop it.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      API_BASE: ${{ vars.API_BASE || 'https://tournaments.example.com' }}
+      ANDROID_APP_ID: ${{ vars.ANDROID_APP_ID || 'app.pairingdesk.android' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            service/web/package-lock.json
+            service/android/package-lock.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Android SDK
+        run: |
+          test -d "$ANDROID_HOME" || { echo "ANDROID_HOME is not set on this runner image"; exit 1; }
+          echo "Android SDK at $ANDROID_HOME"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - name: Firebase config (push notifications)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          echo "APP_LINK_HOST=$(node -e 'console.log(new URL(process.env.API_BASE).host)')" >> "$GITHUB_ENV"
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > service/android/android/app/google-services.json
+            echo "VITE_PUSH=1" >> "$GITHUB_ENV"
+          else
+            echo "No GOOGLE_SERVICES_JSON secret: building without push notifications."
+          fi
+
+      - name: Build the web app for the app
+        working-directory: service/web
+        env:
+          VITE_API_BASE: ${{ env.API_BASE }}
+        run: |
+          npm ci --legacy-peer-deps
+          npm run build
+
+      - name: Copy it into the Android project
+        working-directory: service/android
+        run: |
+          npm ci --legacy-peer-deps
+          npx cap sync android
+
+      - name: Build debug APK and run unit tests
+        working-directory: service/android/android
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon assembleDebug testDebugUnitTest -PappLinkHost="$APP_LINK_HOST" 2>&1 | tee "$RUNNER_TEMP/gradle.log"
+
+      - name: Explain a failed build
+        if: failure()
+        run: |
+          # Surface Gradle's own explanation as an annotation on the run summary.
+          msg=$(grep -A25 "What went wrong" "$RUNNER_TEMP/gradle.log" | head -40 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          [ -z "$msg" ] && msg=$(grep -iE "error|e: " "$RUNNER_TEMP/gradle.log" | head -30 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Gradle build failed::$msg"
+
+      - name: Build signed release (if a keystore is configured)
+        working-directory: service/android/android
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then echo "No keystore secret: skipping the release build."; exit 0; fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          export ANDROID_KEYSTORE_FILE="$RUNNER_TEMP/release.jks"
+          ./gradlew --no-daemon assembleRelease bundleRelease -PappLinkHost="$APP_LINK_HOST"
+          keytool -list -v -keystore "$ANDROID_KEYSTORE_FILE" -storepass "$ANDROID_KEYSTORE_PASSWORD" | grep "SHA256:" | head -1 | sed 's/.*SHA256: /ANDROID_CERT_SHA256 for assetlinks: /'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pairing-desk-android
+          path: |
+            service/android/android/app/build/outputs/apk/**/*.apk
+            service/android/android/app/build/outputs/bundle/**/*.aab
+          if-no-files-found: error
