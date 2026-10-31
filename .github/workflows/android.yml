@@ -70,7 +70,17 @@ jobs:
 
       - name: Build debug APK and run unit tests
         working-directory: service/android/android
-        run: ./gradlew --no-daemon assembleDebug testDebugUnitTest -PappLinkHost="$APP_LINK_HOST"
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon assembleDebug testDebugUnitTest -PappLinkHost="$APP_LINK_HOST" 2>&1 | tee "$RUNNER_TEMP/gradle.log"
+
+      - name: Explain a failed build
+        if: failure()
+        run: |
+          # Surface Gradle's own explanation as an annotation on the run summary.
+          msg=$(grep -A25 "What went wrong" "$RUNNER_TEMP/gradle.log" | head -40 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          [ -z "$msg" ] && msg=$(grep -iE "error|e: " "$RUNNER_TEMP/gradle.log" | head -30 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Gradle build failed::$msg"
 
       - name: Build signed release (if a keystore is configured)
         working-directory: service/android/android
