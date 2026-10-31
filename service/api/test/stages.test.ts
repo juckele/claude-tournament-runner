@@ -55,7 +55,7 @@ describe("stage helpers", () => {
 
 describe("group phase and bracket", () => {
   it("plays round-robin groups, then a seeded bracket with a third-place game", async () => {
-    const { td, t, players } = await setup(8, { format: { groups: { count: 2, pairing: "round-robin", advance: 2 }, bracket: { third_place: true } } });
+    const { td, t, players } = await setup(8, { format: { pairing: "round-robin", groups: { count: 2 }, bracket: { size: 4, third_place: true } } });
     const seed = await seedPlayers(t, td, players);
     const lowerSeedWins = (s: string[]) => (seed.get(s[0])! < seed.get(s[1])! ? 0 : 1);
 
@@ -121,10 +121,10 @@ describe("group phase and bracket", () => {
   });
 
   it("runs a straight knockout, giving the top seeds byes", async () => {
-    const { td, t, players } = await setup(6, { format: { bracket: { third_place: false } } });
+    const { td, t, players } = await setup(6, { format: { rounds: 0, bracket: {} } });
     const seed = await seedPlayers(t, td, players);
     const s = expectStatus(await api("POST", `/tournaments/${t.id}/start`, { token: td.token, body: {} }), 200);
-    expect(s.stages).toMatchObject({ groups: 0, group_rounds: 0, bracket_size: 6, bracket_rounds: 3 });
+    expect(s.stages).toMatchObject({ groups: 1, group_rounds: 0, bracket_size: 6, bracket_rounds: 3 });
     const r1 = s.pairings.map((m: any) => [m.kind, ...m.seats.map((x: any) => seed.get(x.entrant_id))]);
     expect(r1).toEqual([["game", 4, 5], ["game", 3, 6], ["bye", 1], ["bye", 2]]);
     for (let r = 1; r <= 3; r++) {
@@ -139,8 +139,8 @@ describe("group phase and bracket", () => {
   });
 
   it("pairs inside groups with an engine system, and honours a manual draw", async () => {
-    const { td, t, players } = await setup(8, { format: { pairing: "swiss", groups: { count: 2, assign: "manual", pairing: "swiss", rounds: 2 } } });
-    expect((await api("PATCH", `/tournaments/${t.id}`, { token: td.token, body: { settings: { format: { groups: { pairing: "swiss", rounds: null } } } } })).status).toBe(400);
+    const { td, t, players } = await setup(8, { format: { pairing: "swiss", rounds: 2, groups: { count: 2, assign: "manual" } } });
+    expect((await api("PATCH", `/tournaments/${t.id}`, { token: td.token, body: { settings: { format: { groups: { advance: 2 } } } } })).status).toBe(400);
     // The first four players in group B, by hand; the rest fill group A.
     for (const p of players.slice(0, 4)) expectStatus(await api("PATCH", `/tournaments/${t.id}/entrants/${p.entrant.id}`, { token: td.token, body: { group: 2 } }), 200);
     expect((await api("PATCH", `/tournaments/${t.id}/entrants/me`, { token: players[0].token, body: { group: 1 } })).status).toBe(403);
@@ -159,13 +159,50 @@ describe("group phase and bracket", () => {
     expect(new Set(st.slice(0, 2).map((r: any) => r.group))).toEqual(new Set([1, 2]));
   });
 
+  it("cuts to a top 4 after Swiss rounds, seeded by the standings", async () => {
+    const { td, t, players } = await setup(8, { format: { pairing: "swiss", rounds: 3, bracket: { size: 4 } } });
+    const seed = await seedPlayers(t, td, players);
+    const s = expectStatus(await api("POST", `/tournaments/${t.id}/start`, { token: td.token, body: {} }), 200);
+    expect(s.stages).toMatchObject({ groups: 1, group_rounds: 3, bracket_size: 4, bracket_rounds: 2 });
+    const ents = expectStatus(await api("GET", `/tournaments/${t.id}/entrants`, { token: td.token }), 200).entrants;
+    expect(ents.every((e: any) => e.group === 1)).toBe(true);
+    for (let r = 1; r <= 3; r++) {
+      await playRound(t, td, (x) => (seed.get(x[0])! < seed.get(x[1])! ? 0 : 1));
+      await advance(t, td);
+    }
+    // The cut follows the standings after the Swiss rounds.
+    const before = expectStatus(await api("GET", `/tournaments/${t.id}/standings?round=3`), 200).standings;
+    expect(before.filter((r: any) => r.advancing).map((r: any) => r.rank)).toEqual([1, 2, 3, 4]);
+    const top4 = before.slice(0, 4).map((r: any) => r.entrant_id);
+    const semis = expectStatus(await api("GET", `/tournaments/${t.id}/rounds/current`, { token: td.token }), 200).matches;
+    expect(semis.map((m: any) => m.seats.map((x: any) => top4.indexOf(x.entrant_id) + 1))).toEqual([[1, 4], [2, 3]]);
+  });
+
+  it("runs a round-robin league as one group, with no bracket", async () => {
+    const { td, t, players } = await setup(5, { format: { pairing: "round-robin" } });
+    const s = expectStatus(await api("POST", `/tournaments/${t.id}/start`, { token: td.token, body: {} }), 200);
+    expect(s.stages).toMatchObject({ groups: 1, group_rounds: 5, bracket_size: 0 });
+    const met = new Set<string>();
+    for (let r = 1; r <= 5; r++) {
+      const round = await playRound(t, td, () => 0);
+      for (const m of round.matches) if (m.kind === "game") met.add(m.seats.map((x: any) => x.entrant_id).sort().join("|"));
+      expect(round.matches.filter((m: any) => m.kind === "bye")[0].bye_reason).toBe("rest");
+      expect((await advance(t, td)).completed).toBe(r === 5);
+    }
+    expect(met.size).toBe(10);
+    expect(players).toHaveLength(5);
+  });
+
   it("validates the stage settings", async () => {
     const { td, t } = await setup(0);
     const bad = async (format: any) => (await api("PATCH", `/tournaments/${t.id}`, { token: td.token, body: { settings: { format } } })).status;
-    expect(await bad({ groups: { pairing: "round-robin" } })).toBe(400); // no count or size
+    expect(await bad({ groups: { assign: "random" } })).toBe(400); // no count or size
     expect(await bad({ groups: { count: 2, size: 4 } })).toBe(400);
-    expect(await bad({ groups: { count: 2, advance: 2 } })).toBe(400); // nothing to advance into
-    expect(await bad({ groups: { count: 2 }, bracket: {} })).toBe(200);
+    expect(await bad({ bracket: { size: 1 } })).toBe(400);
+    expect(await bad({ rounds: null, bracket: { size: 8 } })).toBe(400); // Swiss needs a round count before the cut
+    expect(await bad({ rounds: 5, bracket: { size: 8 } })).toBe(200);
+    expect(await bad({ rounds: 0, bracket: null })).toBe(400); // zero rounds only for a straight knockout
+    expect(await bad({ pairing: "round-robin", rounds: null, groups: { count: 2 }, bracket: { size: 4 } })).toBe(200);
     // Open-ended (null rounds) is accepted, as the web form sends it.
     expect(await bad({ rounds: null })).toBe(200);
   });

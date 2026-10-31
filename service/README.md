@@ -237,13 +237,19 @@ To charge, see "Clubs and plans" below.
 
 ## Groups and brackets
 
-A tournament can run plain rounds (Swiss or any engine system), groups
-followed by a single-elimination bracket, or a straight knockout. Groups play
-a round robin or an engine system inside each group. The bracket is drawn
-from the group standings: group winners are seeded first, and players from
-the same group are kept apart for as long as possible. An optional
-third-place game is played alongside the final. API.md §2.2 and §5.11 have
-the details; the web app has a Groups tab and a Bracket view.
+The rounds of a tournament are its group stage, and by default everyone is in
+one group. Two additions are optional:
+
+- **Groups:** split the field into several groups, each paired among
+  itself.
+- **Bracket:** a single-elimination top cut, such as Swiss into a top 8. With
+  several groups, group winners are seeded first and players from the same
+  group are kept apart for as long as possible. An optional third-place game
+  is played alongside the final.
+
+Round robin is a pairing choice like Swiss. Zero rounds before the bracket
+makes a straight knockout. API.md §2.2 and §5.11 have the details; the web
+app has group tables and a Bracket view.
 
 ## Clubs and plans
 

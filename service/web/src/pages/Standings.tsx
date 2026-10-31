@@ -17,8 +17,13 @@ export function Standings() {
   const s = t.settings;
   const st = t.stages;
   const after = q.data?.after_round;
-  const title = after ? (q.data!.final ? "Final standings" : `After ${st ? roundTitle(t, after).replace(/^Round/, "round") : `round ${after}`}`) : "Standings";
-  const grouped = !!st?.groups && rows.some((r) => r.group != null);
+  const title = after ? (q.data!.final ? "Final standings" : `After ${roundTitle(t, after).replace(/^Round/, "round").replace(/^Groups, round/, "group round")}`) : "Standings";
+  const grouped = (st?.groups ?? 0) > 1 && rows.some((r) => r.group != null);
+  const cutNote = st?.bracket_size && !rows.some((r) => r.bracket_seed != null) ? (
+    <p className="small muted" style={{ marginBottom: 10 }}>
+      The top {st.bracket_size} go through to the <Link to={`/t/${t.id}/bracket`}>bracket</Link>{grouped ? ": group winners first, then runners-up, and so on" : ""}.
+    </p>
+  ) : null;
   // Group tables while the groups play; once the bracket starts the overall order comes from it.
   const showOverall = !grouped || q.data?.final;
   const groups = grouped ? Array.from({ length: st!.groups }, (_, i) => i + 1) : [];
@@ -39,14 +44,11 @@ export function Standings() {
     >
       {q.loading ? <Loading /> : <ErrorNote error={q.error} retry={q.reload} />}
       {q.data && !rows.length ? <Empty title="No standings yet">Standings appear after the first round closes.</Empty> : null}
+      {rows.length && !grouped ? cutNote : null}
       {rows.length && showOverall ? <StandingsTable t={t} rows={rows} /> : null}
       {grouped ? (
         <div className="stack" style={{ gap: 18, marginTop: showOverall ? 28 : 0 }}>
-          {st!.bracket_rounds ? (
-            <p className="small muted">
-              The top {s.format.groups!.advance} in each group go through to the <Link to={`/t/${t.id}/bracket`}>bracket</Link>.
-            </p>
-          ) : null}
+          {cutNote}
           <div className="groups-grid">
             {groups.map((g) => (
               <div key={g}>
@@ -65,8 +67,7 @@ export function Standings() {
 function StandingsTable({ t, rows, group }: { t: Tournament; rows: Standing[]; group?: boolean }) {
   const hasRating = rows.some((r) => r.rating != null);
   const ties = t.settings.game.allow_ties;
-  const advance = t.settings.format.groups?.advance ?? 0;
-  const bracket = !!t.stages?.bracket_rounds;
+  const grouped = (t.stages?.groups ?? 0) > 1;
   return (
     <div className="table-wrap">
       <table>
@@ -83,13 +84,13 @@ function StandingsTable({ t, rows, group }: { t: Tournament; rows: Standing[]; g
         <tbody>
           {rows.map((r) => {
             const rank = group ? r.group_rank : r.rank;
-            const through = group && bracket && rank != null && rank <= advance;
+            const through = !!(r.advancing || r.bracket_seed != null);
             return (
               <tr key={r.entrant_id} className={`${r.entrant_id === t.my_entrant_id ? "mine" : ""} ${r.eligible ? "" : "ineligible"} ${through ? "through" : ""}`}>
                 <td className="rank num">{r.eligible ? rank : ""}</td>
                 <td className="name">
                   {r.name}
-                  {!group && r.group ? <span className="bk-group" style={{ marginLeft: 8 }} title={`Group ${groupLetter(r.group)}`}>{groupLetter(r.group)}</span> : null}
+                  {!group && grouped && r.group ? <span className="bk-group" style={{ marginLeft: 8 }} title={`Group ${groupLetter(r.group)}`}>{groupLetter(r.group)}</span> : null}
                   {r.status === "withdrawn" ? <span className="tag" style={{ marginLeft: 8 }}>withdrawn</span> : null}
                   {r.status === "disqualified" ? <span className="tag tag-amber" style={{ marginLeft: 8 }}>disqualified</span> : null}
                   {r.byes ? <span className="small muted" style={{ marginLeft: 8 }}>{r.byes} bye{r.byes > 1 ? "s" : ""}</span> : null}

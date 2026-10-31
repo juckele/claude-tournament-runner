@@ -8,7 +8,7 @@ import { Button, Field, Section } from "../ui";
 import { useT } from "./Tournament";
 
 const PAIRING: Record<string, string> = {
-  swiss: "Swiss", monrad: "Monrad", "accel-swiss": "Accelerated Swiss", random: "Random", "random-noreplay": "Random, no rematches",
+  "round-robin": "Round robin (everyone plays everyone)", swiss: "Swiss", monrad: "Monrad", "accel-swiss": "Accelerated Swiss", random: "Random", "random-noreplay": "Random, no rematches",
   "elo-match": "Closest rating", "rank-bt": "Closest strength (Bradley–Terry)", "rank-pu": "Closest strength (Pong–Uckele)", "nd-info": "Most informative (No Diggity)",
 };
 export const pairingLabel = (p: string) => PAIRING[p] ?? (p.startsWith("info-bt") ? `Most informative (BT, ${p.split("-").pop()})` : p.startsWith("erank") ? `Ranking-error minimiser (${p.split("-").pop()})` : p);
@@ -99,22 +99,21 @@ export function TournamentSettings() {
                 <Field label="Points for a win"><input inputMode="decimal" value={s.game.points.by_placement[0]} onChange={(e) => up("game", { points: { ...s.game.points, by_placement: [Number(e.target.value), s.game.points.by_placement[1]] } })} /></Field>
                 <Field label="Points for a loss"><input inputMode="decimal" value={s.game.points.by_placement[1]} onChange={(e) => up("game", { points: { ...s.game.points, by_placement: [s.game.points.by_placement[0], Number(e.target.value)] } })} /></Field>
               </div>
-              <StageFields s={s} setFormat={(v) => up("format", v)} pairing={systems.data?.pairing ?? [s.format.pairing]} />
               <div className="form-2">
-                {!s.format.groups && !s.format.bracket ? (
-                  <Field label="Pairing">
-                    <select value={s.format.pairing} onChange={(e) => up("format", { pairing: e.target.value })}>
-                      {(systems.data?.pairing ?? [s.format.pairing]).map((p) => <option key={p} value={p}>{pairingLabel(p)}</option>)}
-                    </select>
-                  </Field>
-                ) : null}
-                <Field label={s.format.groups ? "Ranking within groups" : "Ranking"}>
+                <Field label="Pairing">
+                  <select value={s.format.pairing} onChange={(e) => up("format", { pairing: e.target.value, ...(e.target.value === "round-robin" ? { rounds: null } : {}) })}>
+                    {(systems.data?.pairing ?? [s.format.pairing]).map((p) => <option key={p} value={p}>{pairingLabel(p)}</option>)}
+                  </select>
+                </Field>
+                <Field label="Ranking">
                   <select value={s.format.ranking} onChange={(e) => up("format", { ranking: e.target.value })}>
                     {(systems.data?.ranking ?? [s.format.ranking]).map((p) => <option key={p} value={p}>{rankingLabel(p)}</option>)}
                   </select>
                 </Field>
-                {!s.format.groups && !s.format.bracket ? (
-                  <Field label="Rounds" hint="Empty for open-ended."><input inputMode="numeric" value={s.format.rounds ?? ""} onChange={(e) => up("format", { rounds: e.target.value ? Number(e.target.value) : null })} /></Field>
+                {s.format.pairing !== "round-robin" ? (
+                  <Field label="Rounds" hint={s.format.bracket ? "Before the bracket. 0 for a straight knockout." : "Empty for open-ended."}>
+                    <input inputMode="numeric" value={s.format.rounds ?? ""} onChange={(e) => up("format", { rounds: e.target.value === "" ? null : Number(e.target.value) })} />
+                  </Field>
                 ) : null}
                 <Field label="Games per player per round"><input inputMode="numeric" value={s.format.games_per_round} onChange={(e) => up("format", { games_per_round: Number(e.target.value) || 1 })} /></Field>
                 <Field label="Rematches">
@@ -127,6 +126,7 @@ export function TournamentSettings() {
                 <Field label="Points for a bye"><input inputMode="decimal" value={s.format.bye_points} onChange={(e) => up("format", { bye_points: Number(e.target.value) })} /></Field>
                 <Field label="Games needed to be ranked"><input inputMode="numeric" value={s.format.min_games_to_rank} onChange={(e) => up("format", { min_games_to_rank: Number(e.target.value) || 0 })} /></Field>
               </div>
+              <StageFields s={s} setFormat={(v) => up("format", v)} />
             </fieldset>
           </div>
         </Section>
@@ -369,44 +369,28 @@ function ClubSection() {
   );
 }
 
-/** Format: plain rounds, groups then a bracket, or a straight knockout. */
-function StageFields({ s, setFormat, pairing }: { s: Settings; setFormat: (v: Partial<Settings["format"]>) => void; pairing: string[] }) {
+/** Optional groups and an optional knockout bracket after the rounds. */
+function StageFields({ s, setFormat }: { s: Settings; setFormat: (v: Partial<Settings["format"]>) => void }) {
   const f = s.format;
-  const structure = f.groups ? "groups" : f.bracket ? "knockout" : "rounds";
   const g = f.groups;
-  const setGroups = (v: Partial<NonNullable<Settings["format"]["groups"]>>) => setFormat({ groups: { ...g!, ...v } });
+  const b = f.bracket;
   return (
     <>
-      <Field label="Format">
-        <select value={structure} onChange={(e) => {
-          const v = e.target.value;
-          // null removes a stage (the API deletes keys set to null).
-          if (v === "rounds") setFormat({ groups: null as any, bracket: null as any });
-          if (v === "knockout") setFormat({ groups: null as any, bracket: f.bracket ?? { third_place: false }, rounds: null });
-          if (v === "groups") setFormat({ groups: g ?? { count: 4, advance: 2, assign: "seeded", pairing: "round-robin" }, bracket: f.bracket ?? { third_place: false }, rounds: null });
-        }}>
-          <option value="rounds">Rounds of pairings</option>
-          <option value="groups">Groups, then a knockout bracket</option>
-          <option value="knockout">Knockout bracket</option>
-        </select>
-      </Field>
+      <label className="check">
+        {/* null removes a setting (the API deletes keys set to null). */}
+        <input type="checkbox" checked={!!g} onChange={(e) => setFormat({ groups: e.target.checked ? { count: 4, assign: "seeded" } : (null as any) })} />
+        <span>
+          Split players into groups
+          <span className="field-hint" style={{ display: "block" }}>Each group plays among itself, all at the same time. Otherwise everyone is one group.</span>
+        </span>
+      </label>
       {g ? (
         <fieldset className="stage-box">
           <legend>Groups</legend>
           <div className="form-2">
-            <Field label="Number of groups"><input inputMode="numeric" value={g.count ?? ""} onChange={(e) => setGroups({ count: Number(e.target.value) || 1 })} /></Field>
-            <Field label="Through to the bracket from each group"><input inputMode="numeric" value={g.advance} onChange={(e) => setGroups({ advance: Number(e.target.value) || 1 })} /></Field>
-            <Field label="Games within a group">
-              <select value={g.pairing} onChange={(e) => setGroups({ pairing: e.target.value, ...(e.target.value === "round-robin" ? { rounds: null } : { rounds: g.rounds ?? 3 }) })}>
-                <option value="round-robin">Everyone plays everyone (round robin)</option>
-                {pairing.map((p) => <option key={p} value={p}>{pairingLabel(p)}</option>)}
-              </select>
-            </Field>
-            {g.pairing !== "round-robin" ? (
-              <Field label="Group rounds"><input inputMode="numeric" value={g.rounds ?? ""} onChange={(e) => setGroups({ rounds: Number(e.target.value) || 1 })} /></Field>
-            ) : null}
+            <Field label="Number of groups"><input inputMode="numeric" value={g.count ?? ""} onChange={(e) => setFormat({ groups: { ...g, count: Number(e.target.value) || 1 } })} /></Field>
             <Field label="Who goes in which group" hint={g.assign === "manual" ? "Place players on the Players page. Anyone you don't place fills the smallest groups." : undefined}>
-              <select value={g.assign} onChange={(e) => setGroups({ assign: e.target.value as any })}>
+              <select value={g.assign} onChange={(e) => setFormat({ groups: { ...g, assign: e.target.value as any } })}>
                 <option value="seeded">Spread by seed</option>
                 <option value="random">Drawn at random</option>
                 <option value="manual">I'll place players myself</option>
@@ -415,14 +399,21 @@ function StageFields({ s, setFormat, pairing }: { s: Settings; setFormat: (v: Pa
           </div>
         </fieldset>
       ) : null}
-      {f.bracket ? (
-        <label className="check">
-          <input type="checkbox" checked={f.bracket.third_place} onChange={(e) => setFormat({ bracket: { third_place: e.target.checked } })} />
-          <span>
-            Semifinal losers play for third place
-            <span className="field-hint" style={{ display: "block" }}>Knockout games always need a winner. Pairing in the bracket follows the draw: top seeds meet as late as possible, and so do players from the same group.</span>
-          </span>
-        </label>
+      <label className="check">
+        <input type="checkbox" checked={!!b} onChange={(e) => setFormat({ bracket: e.target.checked ? { size: 8, third_place: false } : (null as any), ...(e.target.checked && f.rounds == null && f.pairing !== "round-robin" ? { rounds: 5 } : {}) })} />
+        <span>
+          Finish with a knockout bracket
+          <span className="field-hint" style={{ display: "block" }}>The top players after the rounds go through, seeded by the standings. Knockout games always need a winner.</span>
+        </span>
+      </label>
+      {b ? (
+        <fieldset className="stage-box">
+          <legend>Bracket</legend>
+          <Field label="Players in the bracket" hint={g ? "Group winners go through first, then runners-up, and so on. Empty for everyone." : "Empty for everyone."}>
+            <input inputMode="numeric" value={b.size ?? ""} onChange={(e) => setFormat({ bracket: { ...b, size: e.target.value === "" ? null : Number(e.target.value) } })} />
+          </Field>
+          <label className="check"><input type="checkbox" checked={b.third_place} onChange={(e) => setFormat({ bracket: { ...b, third_place: e.target.checked } })} /><span>Semifinal losers play for third place</span></label>
+        </fieldset>
       ) : null}
     </>
   );

@@ -48,9 +48,11 @@ try {
   await signIn(td, `td-${run}@example.com`, "/new");
   await td.page.getByLabel("Name", { exact: true }).fill("Spring Cup");
   await td.page.getByRole("textbox", { name: /^Game/ }).fill("Table tennis");
-  await td.page.getByRole("combobox", { name: /^Format/ }).selectOption("groups");
+  await td.page.getByRole("combobox", { name: /^Pairing/ }).selectOption("round-robin");
+  await td.page.getByLabel("Split players into groups", { exact: false }).check();
   await td.page.getByLabel("Number of groups").fill("2");
-  await td.page.getByLabel("Through to the bracket from each group").fill("2");
+  await td.page.getByLabel("Finish with a knockout bracket", { exact: false }).check();
+  await td.page.getByLabel("Players in the bracket", { exact: false }).fill("4");
   await td.page.getByLabel("Semifinal losers play for third place").check();
   await td.page.getByLabel("Draws are possible").uncheck();
   await shot(td, "s1-new-groups");

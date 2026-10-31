@@ -209,7 +209,7 @@ function Lifecycle({ att, reloadAtt }: { att: Attention | null; reloadAtt: () =>
       </div>
 
       <PlanLimitDialog limit={limit} t={t} onClose={() => setLimit(null)} />
-      <Dialog open={!!preview} onClose={() => setPreview(null)} title={preview?.kind === "start" ? (preview.data?.stages?.groups ? "The group draw" : "Round 1 pairings") : preview?.data?.completes ? "Finish the tournament" : `${roundTitle(t, t.current_round + 1)}: pairings`}>
+      <Dialog open={!!preview} onClose={() => setPreview(null)} title={preview?.kind === "start" ? (preview.data?.stages?.groups > 1 ? "The group draw" : "Round 1 pairings") : preview?.data?.completes ? "Finish the tournament" : `${roundTitle(t, t.current_round + 1)}: pairings`}>
         {preview ? (
           <div className="stack">
             {preview.kind === "start" && preview.data.stages ? <StagePreview st={preview.data.stages} /> : null}
@@ -239,9 +239,9 @@ function Lifecycle({ att, reloadAtt }: { att: Attention | null; reloadAtt: () =>
 function StagePreview({ st }: { st: { groups: number; group_rounds: number; bracket_size: number; bracket_rounds: number } }) {
   const { t } = useT();
   const parts = [];
-  if (st.groups) parts.push(`${st.groups} group${st.groups > 1 ? "s" : ""}, ${st.group_rounds} round${st.group_rounds > 1 ? "s" : ""} of group games`);
+  if (st.group_rounds) parts.push(st.groups > 1 ? `${st.groups} groups, ${st.group_rounds} round${st.group_rounds > 1 ? "s" : ""} of group games` : `${st.group_rounds} round${st.group_rounds > 1 ? "s" : ""}`);
   if (st.bracket_rounds) parts.push(`a ${st.bracket_size}-player bracket over ${st.bracket_rounds} round${st.bracket_rounds > 1 ? "s" : ""}`);
-  return <p className="small muted">{formatSummary(t)}. With these players: {parts.join(", then ")}.</p>;
+  return <p className="small muted">{formatSummary(t)}. With these players: {parts.join(", then ")}.{st.group_rounds ? "" : " Round 1 is the bracket."}</p>;
 }
 
 function PairingPreview({ pairings }: { pairings: { board: number; kind: string; bye_reason?: string; group?: number; bracket?: { tier: string }; seats: { name: string }[] }[] }) {

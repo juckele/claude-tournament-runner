@@ -87,23 +87,25 @@ An OpenAPI file generated from it is the next step.
 }
 ```
 
-**Groups and a bracket (optional).** Add `groups`, `bracket` or both (§5.11):
+**Group stage and bracket.** The rounds above are the group stage. By default
+everyone is in one group, so a Swiss event is a one-group stage. Two optional
+additions (§5.11):
 
 ```json
 "format": {
-  "groups": {
-    "count": 4,                  // or "size": 4 (players per group)
-    "assign": "seeded",          // "seeded" (snake by seed) | "random" | "manual"
-    "pairing": "round-robin",    // or any pairing engine, run inside each group…
-    "rounds": null,              // …which then needs a round count
-    "advance": 2                 // from each group into the bracket
-  },
-  "bracket": { "third_place": true }   // single elimination
+  "pairing": "swiss",            // or "round-robin": everyone meets everyone (per group)
+  "rounds": 5,                   // before the bracket; 0 for a straight knockout
+  "groups": { "count": 4, "assign": "seeded" },   // or "size"; "random" | "manual"
+  "bracket": { "size": 8, "third_place": true }   // top cut; size null = everyone
 }
 ```
 
-With stages, `rounds` is worked out at the start (group rounds plus bracket
-rounds) and `pairing` applies only to plain rounds.
+- `groups` splits the field. Every group is paired by `pairing` at the same
+  time.
+- `bracket` adds a single-elimination top cut.
+- Round robin works out its own round count, from the largest group.
+- With stages, `rounds` becomes the total (group stage plus bracket) at the
+  start.
 
 ### 2.3 Reporting and progression policy (per tournament)
 
@@ -542,21 +544,25 @@ webhooks and channel adapters through Queues):
 
 ### 5.11 Group phase and knockout bracket
 
-- **Start.** The groups are drawn: a snake by seed, at random (from
-  `format.seed`), or by hand. For a manual draw, directors `PATCH` each
+- **Start.** Without `groups`, everyone is in group 1. Otherwise the groups
+  are drawn: a snake by seed, at random (from `format.seed`), or by hand. For a manual draw, directors `PATCH` each
   entrant's `group` (1 = A) before the start, and anyone unplaced fills the
   smallest groups. The start (and its `dry_run`) returns `stages {groups,
   group_rounds, bracket_size, bracket_rounds, group_names}`, and the tournament
   carries `stages` (with `current: {stage, round}`) from then on.
-- **Group rounds.** Every group plays at once. A round robin is scheduled by
-  the circle method; someone without an opponent sits out with a `rest` bye,
-  which scores nothing. With an engine pairing system, the engine pairs each
-  group separately.
-- **The draw.** When the last group round closes, the top `advance` eligible
-  players from each group go through. Group winners are seeded first, ordered
-  by points per game, then runners-up, and so on. Lower tiers are then
-  rearranged so that players from the same group meet as late as possible.
-  Without groups, the bracket is drawn from the entrants' seeds at the start.
+- **Group rounds.** Every group plays at once. A round robin
+  (`pairing: "round-robin"`) is scheduled by the circle method; someone
+  without an opponent sits out with a `rest` bye, which scores nothing. With
+  an engine pairing system, the engine pairs each group separately. A
+  round-robin league with no bracket is simply one group.
+- **The draw.** When the last group round closes, the top `bracket.size`
+  eligible players go through. With one group, that's the top of the
+  standings in order (Swiss into a top 8). With several groups, group winners
+  go first, ordered by points per game, then runners-up, and so on, so a top
+  8 from 3 groups takes the 3 winners, the 3 runners-up and the best 2
+  thirds. Lower tiers are then rearranged so that players from the same group
+  meet as late as possible. With `rounds: 0` (a straight knockout), the
+  bracket is drawn from the entrants' seeds at the start.
   Spare places become `bracket` byes, which go to the top seeds. These are
   walkovers and score nothing.
 - **Bracket rounds.** Winners meet in bracket order. Matches carry `bracket
@@ -565,7 +571,7 @@ webhooks and channel adapters through Queues):
   through, so the next opponent gets a walkover. Bracket pairings can't be set
   by hand (`409`), but a round can be re-paired, which draws it again.
 - **Standings** rows gain `group`, `group_rank`, `bracket_seed`,
-  `eliminated_in` and `advancing`. The overall order puts the bracket first
+  `eliminated_in` and `advancing` (in the cut if the group stage ended now). The overall order puts the bracket first
   (the winner, the finalist, the third-place game, then by the round each
   player went out), then everyone else by group place and record.
 - **`GET /tournaments/:t/bracket`** returns every bracket round (`name`:

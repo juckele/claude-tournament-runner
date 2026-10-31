@@ -106,7 +106,7 @@ export interface Settings {
   game: { name: string; seat_order: string; seat_labels?: string[]; result_mode: "placement" | "score"; allow_ties: boolean; higher_is_better: boolean; points: { by_placement: number[]; tie: string } };
   format: {
     pairing: string; ranking: string; rounds: number | null; games_per_round: number; rematches: string; bye_points: number; min_games_to_rank: number; seed: number;
-    groups?: GroupStage; bracket?: { third_place: boolean };
+    groups?: GroupStage; bracket?: { size: number | null; third_place: boolean };
   };
   reporting: { who_may_report: string; amend_until: string; deadline: string | null };
   progression: { auto_advance?: boolean; accept_undisputed_after: string | null; unplayed: string };
@@ -118,7 +118,7 @@ export interface Settings {
   check_in: { required: boolean };
   claims: { response_window: string };
 }
-export interface GroupStage { count?: number; size?: number; assign: "seeded" | "random" | "manual"; pairing: string; rounds?: number | null; advance: number }
+export interface GroupStage { count?: number; size?: number; assign: "seeded" | "random" | "manual" }
 export interface Stages {
   groups: number; group_rounds: number; bracket_size: number; bracket_rounds: number; group_names: string[];
   current: { stage: "groups" | "bracket"; round: number } | null;

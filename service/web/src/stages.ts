@@ -18,21 +18,24 @@ export function stageOfRound(t: Tournament, n: number): { stage: "groups" | "bra
   return n <= s.group_rounds ? { stage: "groups", round: n } : { stage: "bracket", round: n - s.group_rounds };
 }
 
-/** "Round 2", "Groups, round 2" or "Semifinals". */
+/** "Round 2", "Groups, round 2" (with several groups) or "Semifinals". */
 export function roundTitle(t: Tournament, n: number) {
   const st = stageOfRound(t, n);
   if (!st) return `Round ${n}`;
   if (st.stage === "bracket") return bracketRoundName(st.round, t.stages!.bracket_rounds);
-  return t.stages!.bracket_rounds ? `Groups, round ${st.round}` : `Round ${n}`;
+  return t.stages!.groups > 1 ? `Groups, round ${st.round}` : `Round ${n}`;
 }
 
 /** One line describing the format, for summaries. */
 export function formatSummary(t: Tournament) {
   const f = t.settings.format;
-  if (!f.groups && !f.bracket) return null;
+  const rr = f.pairing === "round-robin";
   const g = f.groups;
-  const groups = g ? `${g.count ? `${g.count} groups` : `groups of ${g.size}`} (${g.pairing === "round-robin" ? "round robin" : `${g.rounds} rounds`})` : "";
-  const bracket = f.bracket ? `knockout bracket${f.bracket.third_place ? " with a third-place game" : ""}` : "";
-  if (g && f.bracket) return `${groups}, top ${g.advance} from each into a ${bracket}`;
-  return g ? groups : `Straight ${bracket}`;
+  const parts = [];
+  if (f.rounds !== 0) {
+    const play = rr ? "a round robin" : `${f.rounds} rounds`;
+    parts.push(g ? `${g.count ? `${g.count} groups` : `groups of ${g.size}`}, each playing ${play}` : rr ? "A round robin" : `${f.rounds} rounds`);
+  }
+  if (f.bracket) parts.push(`${parts.length ? "then " : "A "}knockout bracket for ${f.bracket.size ? `the top ${f.bracket.size}` : "everyone"}${f.bracket.third_place ? ", with a third-place game" : ""}`);
+  return parts.length ? parts.join(", ") : null;
 }

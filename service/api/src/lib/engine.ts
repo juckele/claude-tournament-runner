@@ -27,7 +27,11 @@ async function call<T>(env: Env, path: string, body: unknown): Promise<T> {
 
 let systemsCache: { pairing: string[]; ranking: string[] } | null = null;
 export async function engineSystems(env: Env) {
-  systemsCache ??= await call<{ pairing: string[]; ranking: string[] }>(env, "/systems", undefined);
+  if (!systemsCache) {
+    const out = await call<{ pairing: string[]; ranking: string[] }>(env, "/systems", undefined);
+    // Round robin is scheduled by the API itself (lib/stages.ts), not the engine.
+    systemsCache = { ...out, pairing: ["round-robin", ...out.pairing.filter((p) => p !== "round-robin")] };
+  }
   return systemsCache;
 }
 

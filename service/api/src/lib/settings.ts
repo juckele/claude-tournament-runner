@@ -20,9 +20,9 @@ export interface Settings {
     bye_points: number;
     min_games_to_rank: number;
     seed: number;
-    /** Group phase: players split into groups that play among themselves (API.md §2.2). */
+    /** Split the group stage into several groups (API.md §2.2). Default: one group of everyone. */
     groups?: GroupStage;
-    /** Knockout bracket: after the groups, or for everyone when there are no groups. */
+    /** A knockout bracket for the top `size` after the group stage (optional). */
     bracket?: BracketStage;
   };
   reporting: {
@@ -52,21 +52,22 @@ export interface Settings {
   claims: { response_window: string };
 }
 
+/**
+ * Split the field into groups for the group stage. Without this, the group stage is one group of
+ * everyone, paired by `format.pairing` for `format.rounds` rounds.
+ */
 export interface GroupStage {
   /** How many groups; or give `size` (players per group) and the count follows from the entries. */
   count?: number;
   size?: number;
   /** seeded: snake by seed (1→A, 2→B… then back); random; manual: directors set each entrant's group. */
   assign: "seeded" | "random" | "manual";
-  /** "round-robin" (everyone in the group plays everyone once) or any engine pairing system, run per group. */
-  pairing: string;
-  /** Rounds for engine pairing within groups. Round robin works its own count out. */
-  rounds?: number | null;
-  /** How many from each group go through to the bracket (needs `bracket`). */
-  advance: number;
 }
+/** Single-elimination bracket after the group stage (or instead of it, with `format.rounds: 0`). */
 export interface BracketStage {
-  /** Single elimination. Losers of the semifinals play for third place. */
+  /** How many players go through: a top cut. Null means everyone. */
+  size: number | null;
+  /** Losers of the semifinals play for third place. */
   third_place: boolean;
 }
 
@@ -150,7 +151,10 @@ export function validateSettings(s: Settings, systems?: { pairing: string[]; ran
   } else if (typeof f.pairing !== "string" || typeof f.ranking !== "string") throw bad("format.pairing and format.ranking are required");
   // A patch's null deletes the key (merge), so a missing round count means open-ended.
   f.rounds ??= null;
-  if (f.rounds !== null) int(f.rounds, "format.rounds", 1);
+  if (f.rounds !== null) int(f.rounds, "format.rounds", f.bracket ? 0 : 1);
+  if (f.bracket && f.rounds === null && f.pairing !== "round-robin")
+    throw bad("format.rounds: how many rounds before the bracket (0 for a straight knockout)");
+  if (f.groups && f.rounds === 0) throw bad("format.rounds can't be 0 with groups: the groups need rounds to play");
   int(f.games_per_round, "format.games_per_round", 1);
   oneOf(f.rematches, ["forbid", "avoid", "allow"], "format.rematches");
   num(f.bye_points, "format.bye_points");
@@ -159,23 +163,17 @@ export function validateSettings(s: Settings, systems?: { pairing: string[]; ran
   if (f.groups != null) {
     const gr = f.groups;
     if (!isObj(gr)) throw bad("format.groups must be an object");
+    for (const k of Object.keys(gr)) if (!["count", "size", "assign"].includes(k)) throw bad(`format.groups.${k} isn't a setting: groups are paired by format.pairing for format.rounds, and format.bracket.size says how many go through`);
     if ((gr.count == null) === (gr.size == null)) throw bad("format.groups needs either count (number of groups) or size (players per group)");
     if (gr.count != null) int(gr.count, "format.groups.count", 1);
     if (gr.size != null) int(gr.size, "format.groups.size", 2);
     gr.assign ??= "seeded";
     oneOf(gr.assign, ["seeded", "random", "manual"], "format.groups.assign");
-    gr.pairing ??= "round-robin";
-    if (gr.pairing !== "round-robin") {
-      if (systems) oneOf(gr.pairing, ["round-robin", ...systems.pairing], "format.groups.pairing");
-      if (gr.rounds == null) throw bad("format.groups.rounds is required unless the groups play a round robin");
-    }
-    if (gr.rounds != null) int(gr.rounds, "format.groups.rounds", 1);
-    gr.advance ??= f.bracket ? 2 : 0;
-    int(gr.advance, "format.groups.advance", f.bracket ? 1 : 0);
-    if (!f.bracket && gr.advance) throw bad("format.groups.advance needs a bracket (format.bracket) to advance into");
   }
   if (f.bracket != null) {
     if (!isObj(f.bracket)) throw bad("format.bracket must be an object");
+    f.bracket.size ??= null;
+    if (f.bracket.size !== null) int(f.bracket.size, "format.bracket.size", 2);
     f.bracket.third_place ??= false;
     bool(f.bracket.third_place, "format.bracket.third_place");
   }

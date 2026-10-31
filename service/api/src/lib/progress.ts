@@ -113,7 +113,7 @@ export async function startTournament(env: Env, a: Access, opts: { dry_run?: boo
   // Group phase / bracket: draw the groups and work out how many rounds each stage takes.
   let groups: Map<string, number> | undefined;
   if (hasStages(a.settings)) {
-    groups = a.settings.format.groups ? drawGroups(a.settings, active) : new Map();
+    groups = drawGroups(a.settings, active);
     const sizes: number[] = [];
     for (const g of groups.values()) sizes[g - 1] = (sizes[g - 1] ?? 0) + 1;
     inp.plan = planStages(a.settings, sizes.filter((x) => x != null), active.length);
@@ -123,6 +123,7 @@ export async function startTournament(env: Env, a: Access, opts: { dry_run?: boo
   const planned = await planRound(env, a, inp, 1, opts.allow_incomplete);
   if (groups?.size) planned.assign = { ...Object.fromEntries([...groups].map(([id, g]) => [id, { group_no: g }])), ...mergeAssign(planned.assign, groups) };
   const names = new Map(inp.entrants.map((e) => [e.id, e.display_name]));
+  if (inp.plan && inp.plan.groups < 2) groups = undefined; // one group: nothing to label
   const stages = inp.plan ? { ...inp.plan, group_names: Array.from({ length: inp.plan.groups }, (_, i) => groupLetter(i + 1)) } : undefined;
   if (opts.dry_run) return { dry_run: true, round: 1, pairings: pairingsJson(planned, names, groups), ...(stages ? { stages } : {}) };
   const tx = new Tx(env, a.actor);

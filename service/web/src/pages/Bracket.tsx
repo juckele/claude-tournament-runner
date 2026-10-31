@@ -23,9 +23,9 @@ export function Bracket() {
   if (!b.rounds.length || !st)
     return (
       <Empty title="The bracket isn't drawn yet">
-        {t.settings.format.groups
-          ? `It's drawn from the group standings when the group phase ends: the top ${t.settings.format.groups.advance} from each group go through.`
-          : "It's drawn from the seeds when the director starts the tournament."}
+        {t.settings.format.rounds === 0
+          ? "It's drawn from the seeds when the director starts the tournament."
+          : `It's drawn from the standings when the rounds before it finish: ${t.settings.format.bracket?.size ? `the top ${t.settings.format.bracket.size}` : "everyone"} go${t.settings.format.bracket?.size ? "" : "es"} through.`}
       </Empty>
     );
   const current = t.status === "running" || t.status === "paused" ? t.current_round : null;
@@ -34,7 +34,8 @@ export function Bracket() {
     <Section title="Bracket">
       {waiting ? (
         <p className="muted small" style={{ marginBottom: 12 }}>
-          {st.bracket_size} players go through when the groups finish, {t.settings.format.groups!.advance} from each group. Players from the same group are kept apart for as long as the bracket allows.
+          The top {st.bracket_size} go through when the rounds finish, seeded by the standings.
+          {st.groups > 1 ? " Group winners are seeded first, then runners-up, and players from the same group are kept apart for as long as the bracket allows." : ""}
         </p>
       ) : null}
       <div className={`bk ${b.third_place ? "bk-has-third" : ""}`} role="list" aria-label="Bracket rounds">
@@ -97,7 +98,7 @@ function MatchBox({ slot, t, keep }: { slot: Slot; t: ReturnType<typeof useT>["t
             <span className="bk-seed">{p?.seed ?? ""}</span>
             <span className="bk-name">
               {p ? p.name : bye ? <em>Bye</em> : <span className="muted">To be decided</span>}
-              {p?.group ? <span className="bk-group" title={`Group ${groupLetter(p.group)}`}>{groupLetter(p.group)}</span> : null}
+              {p?.group && (t.stages?.groups ?? 1) > 1 ? <span className="bk-group" title={`Group ${groupLetter(p.group)}`}>{groupLetter(p.group)}</span> : null}
             </span>
             {won ? <span className="bk-mark" aria-label="won">✓</span> : null}
           </div>

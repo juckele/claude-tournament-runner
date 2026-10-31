@@ -1,9 +1,10 @@
 // Group phase and knockout bracket (API.md §2.2, §5.11).
 //
-// Rounds 1…G are the group phase: every group plays its round at the same time, either a round
-// robin (scheduled here) or any engine pairing system run inside each group. Rounds G+1…G+R are a
-// single-elimination bracket, drawn here from the group standings: group winners seeded first,
-// then runners-up and so on, placed so that players from the same group meet as late as possible.
+// Rounds 1…G are the group stage: by default one group of everyone (so a Swiss event is a group
+// stage), or several groups that play their rounds at the same time. Groups are paired by the
+// tournament's pairing system: a round robin (scheduled here) or any engine system, run inside each
+// group. Rounds G+1…G+R are an optional single-elimination bracket for the top `bracket.size`:
+// group winners seeded first, then runners-up and so on, with same-group players kept apart.
 import type { EntrantRow } from "./auth";
 import { ApiError, invalidState, newId } from "./core";
 import { computeGroupStandings, enginePair, finalResult, pairRequest, SnapshotInput, StandingRow } from "./engine";
@@ -12,7 +13,7 @@ import { seatOutcomes } from "./results";
 import type { Settings } from "./settings";
 
 export interface StagePlan {
-  groups: number; // 0 without a group phase
+  groups: number; // 1 for a single group of everyone
   group_rounds: number;
   bracket_size: number; // 0 without a bracket
   bracket_rounds: number;
@@ -30,7 +31,8 @@ export interface PlannedMatch {
 /** A planned round, plus entrant fields to set with it (groups at the start, bracket seeds when it's drawn). */
 export type PlannedRound = PlannedMatch[] & { assign?: Record<string, { group_no?: number; bracket_seed?: number }> };
 
-export const hasStages = (s: Settings) => !!(s.format.groups || s.format.bracket);
+/** Round robin is scheduled here, so it runs as a (single-group) stage even without a bracket. */
+export const hasStages = (s: Settings) => !!(s.format.groups || s.format.bracket || s.format.pairing === "round-robin");
 export const parsePlan = (raw: string | null | undefined): StagePlan | null => (raw ? (JSON.parse(raw) as StagePlan) : null);
 
 export function stageOf(plan: StagePlan, n: number): { stage: "groups"; round: number } | { stage: "bracket"; round: number } {
@@ -59,16 +61,21 @@ function rng(seed: number) {
 }
 
 export function groupCount(settings: Settings, players: number) {
-  const g = settings.format.groups!;
+  const g = settings.format.groups;
+  if (!g) return 1;
   const want = g.count ?? Math.ceil(players / g.size!);
   return Math.max(1, Math.min(want, Math.floor(players / 2)));
 }
 
 /** Split the active entrants into groups. Returns entrant id → group number (1-based). */
 export function drawGroups(settings: Settings, active: EntrantRow[]): Map<string, number> {
-  const g = settings.format.groups!;
-  const count = groupCount(settings, active.length);
   const out = new Map<string, number>();
+  const g = settings.format.groups;
+  const count = groupCount(settings, active.length);
+  if (!g || count === 1) {
+    for (const e of active) out.set(e.id, 1);
+    return out;
+  }
   const sizes = new Array(count + 1).fill(0);
   let rest = [...active].sort(bySeed);
   if (g.assign === "manual") {
@@ -107,19 +114,14 @@ export function drawGroups(settings: Settings, active: EntrantRow[]): Map<string
 
 export function planStages(settings: Settings, groupSizes: number[], players: number): StagePlan {
   const f = settings.format;
-  let group_rounds = 0;
-  let advancing = players;
-  if (f.groups) {
-    group_rounds =
-      f.groups.pairing === "round-robin"
-        ? Math.max(...groupSizes.map((n) => (n % 2 ? n : n - 1)))
-        : f.groups.rounds!;
-    advancing = groupSizes.reduce((s, n) => s + Math.min(n, f.groups!.advance), 0);
-  }
-  const bracket_size = f.bracket ? advancing : 0;
+  const group_rounds =
+    f.rounds === 0 ? 0
+      : f.pairing === "round-robin" ? Math.max(...groupSizes.map((n) => (n % 2 ? n : n - 1)))
+      : f.rounds!;
+  const bracket_size = f.bracket ? Math.min(f.bracket.size ?? players, players) : 0;
   if (f.bracket && bracket_size < 2) throw invalidState("the bracket needs at least two players");
   const bracket_rounds = f.bracket ? Math.ceil(Math.log2(bracket_size)) : 0;
-  return { groups: f.groups ? groupSizes.length : 0, group_rounds, bracket_size, bracket_rounds };
+  return { groups: groupSizes.length || 1, group_rounds, bracket_size, bracket_rounds };
 }
 
 // ---------------------------------------------------------------- round robin
@@ -180,6 +182,12 @@ function perf(r: StandingRow | undefined) {
   if (!r) return [0, 0];
   const g = Math.max(1, r.played + r.forfeits);
   return [r.points / g, r.wins / g];
+}
+/** Compare records across groups (same group place): points per game, wins per game, then overall rank. */
+function cmpRecord(a: StandingRow, b: StandingRow) {
+  const [pa, wa] = perf(a);
+  const [pb, wb] = perf(b);
+  return pb - pa || wb - wa || a.rank - b.rank;
 }
 
 /**
@@ -298,18 +306,18 @@ export async function planBracketRound(env: any, inp: SnapshotInput, plan: Stage
   if (k === 1) {
     let seeds: string[];
     const active = inp.entrants.filter((e) => e.status === "active");
-    if (plan.groups) {
+    if (plan.group_rounds) {
+      // The top `bracket_size` from the group stage: group winners first, then runners-up, …
       const live = new Set(active.map((e) => e.id));
       const groupRows = await computeGroupStandings(env, inp, plan);
-      const advance = settings.format.groups!.advance;
+      const cands: { id: string; group: number; rank: number; row: StandingRow }[] = [];
+      for (const [g, rows] of groupRows)
+        rows.filter((r) => r.eligible && live.has(r.entrant_id)).forEach((r, i) => cands.push({ id: r.entrant_id, group: g, rank: i + 1, row: r }));
+      cands.sort((a, b) => a.rank - b.rank || cmpRecord(a.row, b.row));
       const tiers: { id: string; group: number; row?: StandingRow }[][] = [];
-      for (const [g, rows] of groupRows) {
-        rows.filter((r) => r.eligible && live.has(r.entrant_id)).slice(0, advance).forEach((r, t) => {
-          (tiers[t] ??= []).push({ id: r.entrant_id, group: g, row: r });
-        });
-      }
+      for (const c of cands.slice(0, plan.bracket_size)) (tiers[c.rank - 1] ??= []).push(c);
       seeds = seedBracket(tiers.filter(Boolean), plan.bracket_size);
-    } else seeds = [...active].sort(bySeed).map((e) => e.id);
+    } else seeds = [...active].sort(bySeed).slice(0, plan.bracket_size).map((e) => e.id);
     if (seeds.length < 2) throw invalidState("fewer than two players are left for the bracket");
     const round = firstBracketRound(seeds, plan.bracket_rounds) as PlannedRound;
     round.assign = Object.fromEntries(seeds.map((id, i) => [id, { bracket_seed: i + 1 }]));
@@ -332,12 +340,12 @@ export async function planGroupRound(
   forbidden: [string, string][],
   allowIncomplete: boolean,
 ): Promise<PlannedMatch[]> {
-  const g = inp.settings.format.groups!;
+  const roundRobin = inp.settings.format.pairing === "round-robin";
   const groups = [...new Set(groupOf.values())].sort((a, b) => a - b);
   const out: PlannedMatch[] = [];
   for (const gn of groups) {
     const members = inp.entrants.filter((e) => groupOf.get(e.id) === gn && e.status !== "removed");
-    if (g.pairing === "round-robin") {
+    if (roundRobin) {
       const ids = members.map((e) => e.id).sort();
       const live = new Set(members.filter((e) => e.status === "active").map((e) => e.id));
       for (const [a, b] of roundRobinPairs(ids, n)) {
@@ -358,7 +366,7 @@ export async function planGroupRound(
     };
     const res = await enginePair(env, pairRequest(sub, n, demand, forbidden.filter(([a, b]) => ids.has(a) && ids.has(b))));
     if (!res.complete && !allowIncomplete)
-      throw new ApiError(422, "pairing_failed", `no valid pairing for group ${groupLetter(gn)} under the constraints`, { unpaired: res.unpaired });
+      throw new ApiError(422, "pairing_failed", groups.length > 1 ? `no valid pairing for group ${groupLetter(gn)} under the constraints` : "no valid pairing under the constraints", { unpaired: res.unpaired });
     for (const seats of res.matches) out.push({ id: newId("mat"), board: 0, kind: "game", seats });
     for (const e of Object.keys(res.unpaired)) out.push({ id: newId("mat"), board: 0, kind: "bye", bye_reason: res.complete ? "odd_count" : "unpaired", seats: [e] });
     for (const e of requested) out.push({ id: newId("mat"), board: 0, kind: "bye", bye_reason: "requested", seats: [e] });
@@ -405,7 +413,6 @@ export function stageOrder(
         row.group_rank = ++k;
         groupRank.set(r.entrant_id, k);
       } else row.group_rank = null;
-      if (settings.format.groups?.advance && r.eligible && k <= settings.format.groups.advance) row.advancing = true;
     }
   }
   // How far each bracket player got: higher is better. Still in: Infinity.
@@ -443,5 +450,7 @@ export function stageOrder(
   others.sort((a, b) => Number(b.eligible) - Number(a.eligible) || tierOf(a.entrant_id) - tierOf(b.entrant_id) || cmpPerf(a, b));
   const out = [...inBracket, ...others];
   out.forEach((r, i) => (r.rank = i + 1));
+  // Before the draw: who would go through if the group stage ended now.
+  if (plan.bracket_size && !inBracket.length) others.slice(0, plan.bracket_size).forEach((r) => r.eligible && (r.advancing = true));
   return out;
 }

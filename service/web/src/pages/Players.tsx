@@ -47,7 +47,7 @@ export function Players() {
                   <strong>{e.display_name}</strong>
                   {e.id === t.my_entrant_id ? <span className="muted"> (you)</span> : null}
                   {e.seed != null ? <span className="muted small"> seed {e.seed}</span> : null}
-                  {e.group != null ? <span className="bk-group" style={{ marginLeft: 8 }}>Group {groupLetter(e.group)}</span> : null}
+                  {e.group != null && (t.stages?.groups ?? 2) > 1 ? <span className="bk-group" style={{ marginLeft: 8 }}>Group {groupLetter(e.group)}</span> : null}
                   {td && e.contacts?.length ? <span className="muted small" style={{ display: "block" }}>{e.contacts.map((c) => c.value).join(", ")}</span> : null}
                 </span>
                 <span className={`tag ${e.status === "active" ? "tag-felt" : e.status === "pending_approval" || e.status === "disqualified" ? "tag-amber" : ""}`}>{statusLabel[e.status] ?? e.status}</span>
