@@ -7,6 +7,8 @@ on:
     branches: [main]
     paths: ["service/**", "pairlab/**", "requirements.txt", ".github/workflows/service.yml"]
   workflow_dispatch:
+  # The deploy workflow runs these tests before it deploys.
+  workflow_call:
 
 jobs:
   test:

@@ -162,6 +162,21 @@ try {
   await ada.page.goto(`${BASE}/t/${tid}/entry`);
   await ada.page.getByRole("heading", { name: "Your entry" }).waitFor();
   await shot(ada, "17-entry-mobile");
+
+  step("a player deletes their account; their games stay, anonymously");
+  await ada.page.goto(`${BASE}/me`);
+  await ada.page.getByRole("button", { name: "Delete account" }).click();
+  const dlg = ada.page.getByRole("dialog");
+  const confirm = dlg.getByRole("button", { name: "Delete my account" });
+  if (await confirm.isEnabled()) throw new Error("delete should stay disabled until the phrase is typed");
+  await dlg.getByLabel(/Type "delete my account"/).fill("delete my account");
+  await shot(ada, "18-delete-account-mobile");
+  await confirm.click();
+  await ada.page.waitForURL(/\/sign-in/);
+  await td.page.goto(`${BASE}/t/${tid}/standings`);
+  await td.page.getByRole("cell", { name: /Deleted Player #1/ }).waitFor();
+  await td.page.getByRole("cell", { name: /^Ada/ }).waitFor({ state: "detached" });
+
   await ada.page.goto(`${BASE}/sign-in`);
   await shot(ada, "00-sign-in-mobile");
 

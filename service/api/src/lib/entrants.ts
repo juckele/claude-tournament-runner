@@ -1,6 +1,6 @@
 // Entrant operations (API.md §5.3, §5.8): sign up, withdraw, availability, check-in, byes, …
 import type { Access, EntrantRow } from "./auth";
-import { ApiError, bad, checkIfMatch, Env, forbidden, invalidState, isObj, newId, normaliseEmail, normalisePhone, notFound, now, parseJson } from "./core";
+import { ApiError, bad, checkDisplayName, checkIfMatch, Env, forbidden, invalidState, isObj, newId, normaliseEmail, normalisePhone, notFound, now, parseJson } from "./core";
 import { recomputeStandings, voidAll, voidUnplayed } from "./progress";
 import { Tx } from "./tx";
 
@@ -44,7 +44,7 @@ export async function getEntrant(env: Env, a: Access, id: string): Promise<Entra
 }
 
 async function findOrCreateUser(env: Env, tx: Tx, body: any): Promise<{ user_id: string; name: string; created: boolean }> {
-  const name = typeof body.name === "string" && body.name.trim() ? body.name.trim().slice(0, 100) : null;
+  const name = typeof body.name === "string" && body.name.trim() ? checkDisplayName(body.name.trim().slice(0, 100)) : null;
   const cs: { kind: "email" | "phone"; value: string }[] = [];
   const c = isObj(body.contacts) ? body.contacts : {};
   if (c.email) cs.push({ kind: "email", value: normaliseEmail(c.email) });
@@ -88,6 +88,7 @@ export async function signUp(env: Env, a: Access, body: any, tx = new Tx(env, a.
     const u = await env.DB.prepare("SELECT display_name FROM users WHERE id = ?").bind(userId).first<any>();
     name = typeof body.display_name === "string" && body.display_name.trim() ? body.display_name.trim().slice(0, 100) : u.display_name;
   }
+  checkDisplayName(name);
   const existing = await env.DB.prepare("SELECT id, status FROM entrants WHERE tournament_id = ? AND user_id = ?").bind(a.t.id, userId).first<any>();
   if (existing && existing.status !== "removed") throw new ApiError(409, "already_registered", "already registered", { entrant_id: existing.id });
   const status = a.t.status;
@@ -150,6 +151,7 @@ export async function patchEntrant(env: Env, a: Access, e: EntrantRow, body: any
     switch (k) {
       case "display_name":
         if (typeof v !== "string" || !v.trim()) throw bad("display_name must be a non-empty string");
+        checkDisplayName(v);
         set("display_name", v.trim().slice(0, 100));
         break;
       case "availability": {

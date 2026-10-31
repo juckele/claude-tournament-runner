@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, setToken } from "../api";
+import { api, ApiError, setToken } from "../api";
 import { unregisterDevice } from "../native";
 import { useAction, useApi, useSession, useToast } from "../hooks";
-import { Button, Field, Section } from "../ui";
+import { Button, Dialog, Field, Section } from "../ui";
+import { Link } from "react-router-dom";
 
 export function Profile() {
   const { me, refresh } = useSession();
@@ -97,7 +98,59 @@ export function Profile() {
         </div>
       </Section>
 
-      <Button kind="danger" onClick={async () => { await unregisterDevice(); await api("POST", "/auth/logout").catch(() => {}); setToken(null); toast("Signed out."); nav("/sign-in"); }}>Sign out</Button>
+      <Button kind="secondary" style={{ marginBottom: 36 }} onClick={async () => { await unregisterDevice(); await api("POST", "/auth/logout").catch(() => {}); setToken(null); toast("Signed out."); nav("/sign-in"); }}>Sign out</Button>
+
+      <DeleteAccount />
     </div>
+  );
+}
+
+const PHRASE = "delete my account";
+
+function DeleteAccount() {
+  const nav = useNavigate();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [blocked, setBlocked] = useState<{ id: string; name: string }[] | null>(null);
+  async function go() {
+    setBusy(true);
+    try {
+      await api("DELETE", "/me", { confirm: PHRASE });
+      setToken(null);
+      toast("Your account is deleted.");
+      nav("/sign-in", { replace: true });
+    } catch (e) {
+      const err = e as ApiError;
+      if (err.code === "sole_owner") setBlocked(err.body.tournaments);
+      else toast(err.detail, "error");
+    }
+    setBusy(false);
+  }
+  return (
+    <Section title="Delete your account">
+      <div className="panel stack">
+        <p>This removes your email addresses, phone numbers, sign-ins, API tokens and notes. You're withdrawn from tournaments that are still running. Games you've already played stay in other players' results, with your name replaced by a numbered label like "Deleted Player #1".</p>
+        <Button kind="danger" style={{ justifySelf: "start" }} onClick={() => { setOpen(true); setTyped(""); setBlocked(null); }}>Delete account</Button>
+      </div>
+      <Dialog open={open} onClose={() => setOpen(false)} title="Delete your account?">
+        <div className="stack">
+          {blocked ? (
+            <div className="note note-warn" style={{ display: "grid" }}>
+              <p>You're the only owner of these tournaments, which are still running. Make someone else an owner (Settings, Directors) or cancel them, then try again.</p>
+              <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                {blocked.map((t) => <li key={t.id}><Link to={`/t/${t.id}/settings`} onClick={() => setOpen(false)}>{t.name}</Link></li>)}
+              </ul>
+            </div>
+          ) : null}
+          <p>This can't be undone. Draft tournaments only you own are deleted too.</p>
+          <Field label={`Type "${PHRASE}" to confirm`}>
+            <input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" autoCapitalize="off" spellCheck={false} />
+          </Field>
+          <Button kind="danger" busy={busy} disabled={typed.trim().toLowerCase() !== PHRASE} onClick={go}>Delete my account</Button>
+        </div>
+      </Dialog>
+    </Section>
   );
 }

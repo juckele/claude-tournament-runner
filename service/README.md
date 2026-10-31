@@ -159,7 +159,7 @@ http://localhost:5173 (it proxies `/v1` to :8787). Rebuilding `web/dist` while
 Tests:
 
 ```
-cd api && npm test             # 24 integration tests (workerd + D1 + real engine via python3)
+cd api && npm test             # 26 integration tests (workerd + D1 + real engine via python3)
 cd engine && python3 -m pytest -q tests
 cd web && npm run e2e          # browser runs against ./dev.sh: a whole event (director on desktop,
                                # players on phones); a private event joined by scanning its
@@ -176,25 +176,48 @@ as `dev_secret`, and it logs outgoing email and SMS instead of sending them.
 
 ## Deploying
 
+Deploys run from GitHub Actions (`.github/workflows/deploy.yml`), using
+[`deploy/deploy.mjs`](deploy/deploy.mjs).
+
+- **Staging** deploys on every push to `main` that touches the service.
+- **Production** is deployed by hand: Actions → Deploy → Run workflow →
+  production. Give the `production` environment a required reviewer to gate it.
+
+Both run the full test suite first.
+
+**Setup.** One-time, per GitHub environment (`staging`, `production`):
+
+- **Secrets:** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The token
+  needs Edit permission on Workers Scripts, D1, Queues and Workers Routes, plus
+  Custom Domains if you use your own domain.
+- **Optional secrets:** `RESEND_API_KEY`, `TWILIO_*`, `FCM_SERVICE_ACCOUNT`,
+  `CHANNEL_TOKEN`, `INBOUND_EMAIL_SECRET`.
+- **Optional variables:** `PUBLIC_URL` (your domain; without it the service runs
+  at its workers.dev address), `EMAIL_FROM`, `ANDROID_APP_ID`,
+  `ANDROID_CERT_SHA256`, `CORS_ORIGINS`.
+
+Without the Cloudflare secrets the deploy job skips with a warning.
+
+**What the script does.** It's idempotent, so safe to rerun:
+
+1. Creates the environment's D1 database and queue if they're missing.
+2. Renders `api/wrangler.deploy.json`. Production uses unsuffixed names and
+   staging uses `-staging` ones; the checked-in `wrangler.toml` stays the
+   local-development config.
+3. Applies the migrations.
+4. Deploys the engine with `pywrangler`, then the API and web app.
+5. Generates `LINK_SECRET` once and copies over whichever optional secrets are
+   set.
+6. Smoke-checks `GET /v1/systems`, which only answers when the API reached the
+   Python engine.
+
+To deploy from your own machine instead (with `wrangler login` or the two
+environment variables set), or to check the rendered config and bundle without
+touching Cloudflare:
+
 ```
-# one-time
-wrangler d1 create tournaments            # put the id into api/wrangler.toml
-wrangler queues create tournament-events
-cd api && npm run db:migrate
-
-# engine (Python Worker)
-cd engine && ./build.sh && uv run pywrangler deploy
-
-# API + web app
-(cd web && npm run build)
-cd api
-wrangler secret put LINK_SECRET           # signs one-tap report links and calendar keys
-wrangler secret put CHANNEL_TOKEN         # optional: external channel adapters
-wrangler secret put INBOUND_EMAIL_SECRET  # optional: JSON inbound-email webhook
-wrangler secret put RESEND_API_KEY        # optional: outgoing email
-wrangler secret put TWILIO_ACCOUNT_SID    # optional: SMS (also TWILIO_AUTH_TOKEN, TWILIO_FROM)
-wrangler secret put FCM_SERVICE_ACCOUNT   # optional: push to the Android app
-npm run deploy
+node deploy/deploy.mjs staging
+node deploy/deploy.mjs production --dry-run
 ```
 
 Also set `PUBLIC_URL` and `EMAIL_FROM` in `api/wrangler.toml`. To connect the
@@ -216,6 +239,29 @@ channels:
 - all three browser tests against `./dev.sh`, with screenshots uploaded
 
 `.github/workflows/android.yml` builds the app.
+
+## Deleting an account
+
+`DELETE /v1/me` with `{"confirm": "delete my account"}` works from a signed-in
+session only, not an API token; Profile → Delete account in the app does this.
+
+- **Removed:** the person's contact points, sessions, API tokens, phones,
+  sign-in codes and the delivery records addressed to them. Their notes and
+  comments are blanked.
+- **Live tournaments:** they're withdrawn, and unplayed games are voided as each
+  tournament's rules say.
+- **Finished games:** these stay, so other players' results and standings don't
+  change. In each tournament the name becomes "Deleted Player #N", numbered in
+  the order people leave. The number is stored once and never reused or
+  changed, so games between two deleted players stay readable. Live players
+  can't pick names that start "Deleted Player". The user row stays as an
+  anonymous tombstone.
+- **Tournaments they own alone:** drafts are deleted. Finished or cancelled
+  ones stay as archives. A tournament that's still live blocks deletion
+  (`409 sole_owner`, with the list) until they make someone else an owner or
+  cancel it.
+- **Afterwards:** signing in again with the same email starts a new, empty
+  account.
 
 ## Not built yet
 
