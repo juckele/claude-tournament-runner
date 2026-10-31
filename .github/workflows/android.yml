@@ -17,25 +17,30 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # ubuntu-24.04 ships the Android SDK (ANDROID_HOME); pinned so the image can't drop it.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       API_BASE: ${{ vars.API_BASE || 'https://tournaments.example.com' }}
       ANDROID_APP_ID: ${{ vars.ANDROID_APP_ID || 'app.pairingdesk.android' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: |
             service/web/package-lock.json
             service/android/package-lock.json
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
-      - uses: android-actions/setup-android@v3
+      - name: Android SDK
+        run: |
+          test -d "$ANDROID_HOME" || { echo "ANDROID_HOME is not set on this runner image"; exit 1; }
+          echo "Android SDK at $ANDROID_HOME"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
       - name: Firebase config (push notifications)
         env:
