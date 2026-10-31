@@ -28,6 +28,13 @@ export default defineConfig(async () => {
             LINK_SECRET: "test-link-secret",
             CHANNEL_TOKEN: "chn_test",
             INBOUND_EMAIL_SECRET: "inbound-secret",
+            // Plans are enforced in tests, as on the hosted service. Stripe calls are stubbed per test.
+            BILLING: "on",
+            STRIPE_SECRET_KEY: "sk_test_fake",
+            STRIPE_WEBHOOK_SECRET: "whsec_test",
+            STRIPE_PRICE_CLUB_MONTHLY: "price_club_month",
+            STRIPE_PRICE_CLUB_YEARLY: "price_club_year",
+            STRIPE_PRICE_EVENT_PASS: "price_event_pass",
           },
           serviceBindings: { ENGINE: engine },
         },

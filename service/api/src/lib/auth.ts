@@ -127,6 +127,9 @@ export interface TournamentRow {
   created_by: string;
   created_at: string;
   updated_at: string;
+  club_id: string | null;
+  event_pass: number;
+  started_plan: string | null;
 }
 
 export interface EntrantRow {
@@ -230,6 +233,12 @@ export async function loadAccess(env: Env, p: Principal, tournamentId: string, o
     ]);
     role = ((r.results[0] as any)?.role as Role) ?? null;
     entrant = (e.results[0] as unknown as EntrantRow) ?? null;
+    // Club tournaments: club admins act as owners and club directors as directors.
+    if (t.club_id && role !== "owner") {
+      const m = await env.DB.prepare("SELECT role FROM club_members WHERE club_id = ? AND user_id = ?").bind(t.club_id, p.user_id).first<{ role: string }>();
+      if (m?.role === "admin") role = "owner";
+      else if (m?.role === "director" && role !== "director") role = "director";
+    }
   }
   const a = new Access(p, t, parseJson(t.settings, {} as Settings), role, entrant);
   if (!a.canRead) {

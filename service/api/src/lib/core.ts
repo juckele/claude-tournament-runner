@@ -16,6 +16,13 @@ export interface Env {
   ANDROID_APP_ID?: string;
   ANDROID_CERT_SHA256?: string;
   FCM_SERVICE_ACCOUNT?: string;
+  /** "on" to enforce plan limits (hosted service). Off: everything is unlimited (self-hosting). */
+  BILLING?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_PRICE_CLUB_MONTHLY?: string;
+  STRIPE_PRICE_CLUB_YEARLY?: string;
+  STRIPE_PRICE_EVENT_PASS?: string;
   PUBLIC_URL: string;
   EMAIL_FROM: string;
   DEV_MODE?: string;

@@ -12,7 +12,7 @@ async function roundGames(tid: string, token: string, n: number) {
 
 describe("auto-pairing", () => {
   it("pairs the next round as soon as every game is settled, and finishes the event", async () => {
-    const { td, t, players } = await setup(4, { format: { rounds: 2 }, progression: { auto_advance: true, accept_undisputed_after: null } });
+    const { td, t, players } = await setup(4, { format: { rounds: 2 }, progression: { auto_advance: true, accept_undisputed_after: null } }, { plan: "club" });
     expectStatus(await api("POST", `/tournaments/${t.id}/start`, { token: td.token }), 200);
     const [g1, g2] = await roundGames(t.id, td.token, 1);
     const report = async (g: any) => {
@@ -41,7 +41,7 @@ describe("auto-pairing", () => {
     const { td, t, players } = await setup(4, {
       format: { rounds: 3 },
       progression: { auto_advance: true, accept_undisputed_after: "PT1H", unplayed: "void" },
-    });
+    }, { plan: "club" });
     expectStatus(await api("POST", `/tournaments/${t.id}/start`, { token: td.token }), 200);
     const [g1] = await roundGames(t.id, td.token, 1);
     expectStatus(await api("PUT", `/tournaments/${t.id}/matches/${g1.id}/reports/me`, { token: byEntrant(players, g1.seats[0].entrant_id).token, body: { result: W } }), 201);

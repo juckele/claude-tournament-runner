@@ -4,6 +4,7 @@ import { ApiError, bad, durationMs, Env, invalidState, isObj, newId, now, parseJ
 import { computeStandings, enginePair, loadSnapshotInput, pairRequest, SnapshotInput, StandingRow } from "./engine";
 import { loadMatches, MatchModel, Ruling } from "./matches";
 import type { Settings } from "./settings";
+import { checkStart, hasFeature } from "./plans";
 import { Tx } from "./tx";
 
 export interface PlannedMatch {
@@ -98,6 +99,7 @@ export async function startTournament(env: Env, a: Access, opts: { dry_run?: boo
   const inp = await loadSnapshotInput(env, a.t, a.settings, []);
   const active = inp.entrants.filter((e) => e.status === "active");
   if (active.length < 2) throw invalidState("need at least two active entrants to start");
+  const plan = await checkStart(env, a.t, active.length);
   const planned = await planRound(env, a, inp, 1, opts.allow_incomplete);
   const names = new Map(inp.entrants.map((e) => [e.id, e.display_name]));
   if (opts.dry_run) return { dry_run: true, round: 1, pairings: pairingsJson(planned, names) };
@@ -105,7 +107,7 @@ export async function startTournament(env: Env, a: Access, opts: { dry_run?: boo
   const t = now();
   const roundId = newId("rnd");
   tx.guardVersion("tournaments", a.t.id, a.t.version);
-  tx.add("UPDATE tournaments SET status = 'running', registration_open = 0, current_round = 1, version = version + 1, updated_at = ? WHERE id = ?", t, a.t.id);
+  tx.add("UPDATE tournaments SET status = 'running', registration_open = 0, current_round = 1, started_plan = ?, version = version + 1, updated_at = ? WHERE id = ?", plan, t, a.t.id);
   tx.add("INSERT INTO rounds (id, tournament_id, number, status, opened_at, deadline) VALUES (?, ?, 1, 'open', ?, ?)", roundId, a.t.id, t, deadlineFor(a.settings, t));
   stageRoundMatches(tx, a.t.id, roundId, 1, planned);
   stageStandings(tx, a.t.id, 0, await computeStandings(env, inp));
@@ -436,6 +438,7 @@ export async function autoAdvance(env: Env, tid: string): Promise<{ advanced: bo
   if (!t || t.status !== "running") return { advanced: false, reason: "not running" };
   const settings = parseJson<Settings>(t.settings, null as any);
   if (!settings?.progression?.auto_advance) return { advanced: false, reason: "auto-pairing is off" };
+  if (!(await hasFeature(env, t, "auto_advance"))) return { advanced: false, reason: "auto-pairing needs the Club plan or an event pass" };
   await expireClaims(env, tid);
   const n = t.current_round;
   const at = now();

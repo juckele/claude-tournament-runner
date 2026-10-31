@@ -1,19 +1,34 @@
 // Tournaments: CRUD, lifecycle, roles, channels, webhooks, export, attention, batch ops (API.md §5.2, §5.7, §5.8).
 import { Hono } from "hono";
 import { Access, loadAccess, requireUser, Role, TournamentRow } from "../lib/auth";
-import { ApiError, bad, checkIfMatch, etag, forbidden, invalidState, isObj, isoOrNull, newId, normaliseEmail, normalisePhone, notFound, now, parseJson, randomToken } from "../lib/core";
+import { ApiError, bad, checkIfMatch, Env, etag, forbidden, invalidState, isObj, isoOrNull, newId, normaliseEmail, normalisePhone, notFound, now, parseJson, randomToken } from "../lib/core";
 import { engineSystems, parseSettings } from "../lib/engine";
 import { importEntrants } from "../lib/entrants";
 import { loadMatches, MatchModel, matchJson, requireSeated, Ruling } from "../lib/matches";
 import { advance, checkRound, recomputeStandings, startTournament } from "../lib/progress";
 import { normaliseResult, seatOutcomes } from "../lib/results";
+import { effectivePlan, LIMITS, PlanLimit, planJson, PlanSource, requireFeature } from "../lib/plans";
 import { applySettingsPatch, defaultSettings, Settings, touchesOwnerOnly, validateSettings } from "../lib/settings";
 import { Tx } from "../lib/tx";
 import { access, body, flag, H } from "../http";
 
 export const tournaments = new Hono<H>();
 
-export function tournamentJson(t: TournamentRow, a?: Access) {
+/** Throws unless `uid` is an admin or director of the club. Returns the club id. */
+async function requireClubMember(env: Env, uid: string, clubId: unknown): Promise<string> {
+  if (typeof clubId !== "string") throw bad("club_id must be a club id");
+  const m = await env.DB.prepare("SELECT role FROM club_members WHERE club_id = ? AND user_id = ?").bind(clubId, uid).first();
+  if (!m) throw forbidden("you can only run tournaments for clubs you belong to");
+  return clubId;
+}
+
+/** Paid features can't be switched on without the plan (switching them off is always fine). */
+async function gateSettings(env: Env, t: PlanSource, next: Settings, prev: Settings | null) {
+  if (next.progression.auto_advance && !prev?.progression.auto_advance) await requireFeature(env, t, "auto_advance");
+  if (next.channels.sms.enabled && !prev?.channels.sms.enabled) await requireFeature(env, t, "sms");
+}
+
+export function tournamentJson(t: TournamentRow, a?: Access, extra: Record<string, unknown> = {}) {
   return {
     id: t.id,
     code: t.id.slice(-6),
@@ -31,6 +46,9 @@ export function tournamentJson(t: TournamentRow, a?: Access) {
     version: t.version,
     ...(a ? { my_role: a.role, my_entrant_id: a.entrant?.id ?? null } : {}),
     ...(a?.isOwner && t.transfer_to ? { transfer_to: t.transfer_to } : {}),
+    club_id: t.club_id ?? null,
+    event_pass: !!t.event_pass,
+    ...extra,
   };
 }
 
@@ -38,7 +56,8 @@ async function respondT(c: any, id: string, status = 200) {
   // ?invite=CODE lets someone with an invite see a private tournament before joining.
   const a = await loadAccess(c.env, c.get("p"), id, { invite: c.req.query("invite") || undefined });
   c.header("ETag", etag(a.t.version));
-  return c.json(tournamentJson(a.t, a), status);
+  const club = a.t.club_id ? await c.env.DB.prepare("SELECT id, name FROM clubs WHERE id = ?").bind(a.t.club_id).first() : null;
+  return c.json(tournamentJson(a.t, a, { club, plan: await planJson(c.env, a.t) }), status);
 }
 
 // ---------------------------------------------------------------- create / list / read
@@ -51,11 +70,13 @@ tournaments.post("/tournaments", async (c) => {
   const vis = b.visibility ?? "private";
   if (!["public", "unlisted", "private"].includes(vis)) throw bad("visibility must be public, unlisted or private");
   const settings = validateSettings(applySettingsPatch(defaultSettings(), b.settings ?? {}, "draft"), await engineSystems(c.env));
+  const clubId = b.club_id ? await requireClubMember(c.env, uid, b.club_id) : null;
+  await gateSettings(c.env, { club_id: clubId, event_pass: 0, status: "draft" }, settings, null);
   const id = newId("trn");
   const t = now();
   const tx = new Tx(c.env, { user_id: uid, role: "owner", channel: p.channel });
-  tx.add("INSERT INTO tournaments (id, name, description, status, visibility, settings, created_by, created_at, updated_at) VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?)",
-    id, b.name.trim().slice(0, 200), String(b.description ?? "").slice(0, 5000), vis, JSON.stringify(settings), uid, t, t);
+  tx.add("INSERT INTO tournaments (id, name, description, status, visibility, settings, club_id, created_by, created_at, updated_at) VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?)",
+    id, b.name.trim().slice(0, 200), String(b.description ?? "").slice(0, 5000), vis, JSON.stringify(settings), clubId, uid, t, t);
   tx.add("INSERT INTO role_grants (tournament_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)", id, uid, t);
   tx.event("tournament.created", id, null, { name: b.name });
   await tx.commit();
@@ -122,8 +143,15 @@ tournaments.patch("/tournaments/:t", async (c) => {
     } else if (k === "settings") {
       if (touchesOwnerOnly(b.settings)) a.requireOwner();
       const s = validateSettings(applySettingsPatch(a.settings, b.settings, a.t.status), await engineSystems(c.env));
+      await gateSettings(c.env, a.t, s, a.settings);
       sets.push("settings = ?");
       vals.push(JSON.stringify(s));
+    } else if (k === "club_id") {
+      // Move into a club (you must be one of its admins or directors) or back out (null).
+      a.requireOwner();
+      if (["running", "paused"].includes(a.t.status)) throw invalidState("move a tournament between clubs before it starts or after it ends");
+      sets.push("club_id = ?");
+      vals.push(b.club_id === null ? null : await requireClubMember(c.env, a.p.user_id!, b.club_id));
     } else throw bad(`unknown or read-only field: ${k}`);
   }
   if (sets.length) {
@@ -309,6 +337,14 @@ const ROLES: Role[] = ["owner", "director", "observer"];
 async function stageGrant(tx: Tx, a: Access, userId: string, role: Role) {
   const u = await tx.db.prepare("SELECT id FROM users WHERE id = ?").bind(userId).first();
   if (!u) throw notFound(`user ${userId}`);
+  if (role !== "observer") {
+    const L = LIMITS[await effectivePlan(tx.env, a.t)];
+    if (L.max_directors != null) {
+      const n = (await tx.db.prepare("SELECT COUNT(*) AS n FROM role_grants WHERE tournament_id = ? AND role IN ('owner','director') AND user_id != ?").bind(a.t.id, userId).first<{ n: number }>())!.n;
+      if (n + 1 > L.max_directors)
+        throw new PlanLimit(`the free plan allows ${L.max_directors} directors per tournament (owner included)`, { plan: "free", limit: "max_directors", max: L.max_directors, have: n, upgrade: a.t.club_id ? { club_id: a.t.club_id, options: ["club_plan", "event_pass"] } : { options: ["move_to_club", "event_pass"] } });
+    }
+  }
   tx.add("INSERT INTO role_grants (tournament_id, user_id, role, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (tournament_id, user_id) DO UPDATE SET role = excluded.role", a.t.id, userId, role, now());
   tx.event("role.granted", a.t.id, { user_id: userId }, { role });
 }
@@ -489,6 +525,7 @@ tournaments.patch("/tournaments/:t/channels", async (c) => {
   if (isObj(b) && "sms" in b) a.requireOwner();
   if (["cancelled", "complete"].includes(a.t.status)) throw invalidState(`the tournament is ${a.t.status}`);
   const s = validateSettings(applySettingsPatch(a.settings, { channels: b }, a.t.status));
+  await gateSettings(c.env, a.t, s, a.settings);
   const tx = new Tx(c.env, a.actor);
   tx.guardVersion("tournaments", a.t.id, a.t.version);
   tx.add("UPDATE tournaments SET settings = ?, version = version + 1, updated_at = ? WHERE id = ?", JSON.stringify(s), now(), a.t.id);

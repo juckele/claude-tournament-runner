@@ -1,4 +1,5 @@
 import { SELF } from "cloudflare:test";
+import { hmacHex } from "../src/lib/core";
 
 export interface Res<T = any> {
   status: number;
@@ -41,10 +42,31 @@ export function expectStatus(r: Res, status: number) {
   return r.body;
 }
 
+/** POST a Stripe webhook event signed with the test secret (whsec_test). */
+export async function stripeWebhook(event: Record<string, unknown>, secret = "whsec_test") {
+  const payload = JSON.stringify({ id: `evt_${Math.random().toString(36).slice(2)}`, ...event });
+  const t = Math.floor(Date.now() / 1000);
+  const sig = await hmacHex(secret, `${t}.${payload}`);
+  return api("POST", "/billing/stripe-webhook", { raw: payload, headers: { "content-type": "application/json", "stripe-signature": `t=${t},v1=${sig}` } });
+}
+
+/** A club owned by `token`, with an active Club plan (activated the way Stripe would). */
+export async function paidClub(token: string, name = "Test Club") {
+  const club = expectStatus(await api("POST", "/clubs", { token, body: { name } }), 201);
+  const rnd = Math.random().toString(36).slice(2);
+  expectStatus(await stripeWebhook({
+    type: "customer.subscription.updated",
+    data: { object: { id: `sub_${rnd}`, customer: `cus_${rnd}`, status: "active", metadata: { club_id: club.id },
+      items: { data: [{ price: { recurring: { interval: "month" } }, current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400 }] } } },
+  }), 200);
+  return club;
+}
+
 /** A director plus `n` signed-up players in a tournament in registration. */
-export async function setup(n: number, settings: any = {}, opts: { visibility?: string } = {}) {
+export async function setup(n: number, settings: any = {}, opts: { visibility?: string; plan?: "club" } = {}) {
   const td = await login("TD");
-  const t = expectStatus(await api("POST", "/tournaments", { token: td.token, body: { name: "Test Open", visibility: opts.visibility ?? "unlisted", settings } }), 201);
+  const club = opts.plan === "club" ? await paidClub(td.token) : null;
+  const t = expectStatus(await api("POST", "/tournaments", { token: td.token, body: { name: "Test Open", visibility: opts.visibility ?? "unlisted", settings, ...(club ? { club_id: club.id } : {}) } }), 201);
   expectStatus(await api("POST", `/tournaments/${t.id}/open-registration`, { token: td.token }), 200);
   const players = [];
   for (let i = 0; i < n; i++) {
@@ -52,7 +74,7 @@ export async function setup(n: number, settings: any = {}, opts: { visibility?: 
     const e = expectStatus(await api("POST", `/tournaments/${t.id}/entrants`, { token: p.token, body: {} }), 201);
     players.push({ ...p, entrant: e });
   }
-  return { td, t, players };
+  return { td, t, players, club };
 }
 
 export const byEntrant = (players: any[], id: string) => players.find((p) => p.entrant.id === id);
