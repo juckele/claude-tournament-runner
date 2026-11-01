@@ -3,3 +3,4 @@ src/pairlab/
 python_modules/
 src/vendor/
 pylock.toml
+uv.lock

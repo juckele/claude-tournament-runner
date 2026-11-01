@@ -45,8 +45,7 @@ arrays scattered into theta: everything is vectorised over games.
 from __future__ import annotations
 
 import numpy as np
-from scipy.optimize import minimize
-from scipy.special import log_ndtr, ndtr
+from ._numeric import log_ndtr, minimize_lbfgs, ndtr
 
 _LOG_SQRT_2PI = 0.5 * np.log(2 * np.pi)
 
@@ -193,9 +192,8 @@ class NDModel:
 
     def fit(self, w, b, y, theta0=None, tol=1e-9, maxiter=500):
         th0 = self.initial() if theta0 is None else theta0
-        res = minimize(self.objective, th0, args=(np.asarray(w), np.asarray(b), np.asarray(y)),
-                       jac=True, method="L-BFGS-B",
-                       options={"maxiter": maxiter, "gtol": tol, "ftol": 1e-13})
+        res = minimize_lbfgs(self.objective, th0, args=(np.asarray(w), np.asarray(b), np.asarray(y)),
+                             maxiter=maxiter, gtol=tol, ftol=1e-13)
         self.last_fit = res
         return res.x
 

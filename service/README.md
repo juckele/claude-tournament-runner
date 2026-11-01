@@ -318,6 +318,10 @@ session only, not an API token; Profile → Delete account in the app does this.
 - GitHub OAuth sign-in
 - TRF import/export (chess-specific)
 
-The Python Worker has only been exercised through its CLI and a stub of the
-`workers` module. It hasn't run under Pyodide yet; numpy, scipy and networkx
-are all Pyodide packages.
+The engine Worker ships numpy and networkx but not scipy: with scipy the
+bundle passed Cloudflare's 64 MiB Worker limit. pairlab uses scipy for a
+normal CDF and an L-BFGS fit, and falls back to numpy versions
+(`pairlab/_numeric.py`, tested against scipy) when scipy isn't installed.
+Deploying the engine needs uv 0.13.4 or later. Behind an HTTPS proxy, run the
+deploy script with `NODE_USE_ENV_PROXY=1`, because Node's fetch ignores
+`HTTPS_PROXY` otherwise.
