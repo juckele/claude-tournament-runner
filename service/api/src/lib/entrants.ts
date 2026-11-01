@@ -13,6 +13,8 @@ export function entrantJson(e: EntrantRow, opts: { private?: boolean; contacts?:
     status: e.status,
     seed: e.seed,
     rating: e.rating,
+    ...(e.group_no != null ? { group: e.group_no } : {}),
+    ...(e.bracket_seed != null ? { bracket_seed: e.bracket_seed } : {}),
   };
   if (opts.private) {
     Object.assign(out, {
@@ -181,6 +183,15 @@ export async function patchEntrant(env: Env, a: Access, e: EntrantRow, body: any
         if (v !== null && (k === "seed" ? !Number.isInteger(v) : typeof v !== "number")) throw bad(`${k} must be a number or null`);
         set(k, v);
         break;
+      case "group": {
+        // Manual group draw (format.groups.assign = "manual"), before the start.
+        if (!a.isTD) throw forbidden("only directors can place players in groups");
+        if (!a.settings.format.groups) throw bad("this tournament has no group phase");
+        if (a.t.current_round > 0) throw invalidState("groups are fixed once round 1 is paired");
+        if (v !== null && !(Number.isInteger(v) && v >= 1)) throw bad("group must be a group number (1 = A) or null");
+        set("group_no", v);
+        break;
+      }
       default:
         throw bad(`unknown or read-only field: ${k}`);
     }

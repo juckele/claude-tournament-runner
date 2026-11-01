@@ -378,7 +378,7 @@ class InfoBT(Pairer):
         close = 1.0 - np.abs(2 * p - 1)
         dg = np.diag(S)
         v = np.maximum(dg[:, None] + dg[None, :] - 2 * S, 1e-12)
-        from scipy.special import ndtr
+        from ._numeric import ndtr
         info = 0.5 * np.log1p(p * (1 - p) * v) * 2 * ndtr(-np.abs(d) / np.sqrt(v))
         return close, info, p
 
@@ -447,7 +447,7 @@ def ranking_error_gain(r, S, games, prune=1e-4):
 
     games: (gi, gj) index arrays. Returns gains (one per game), >= 0.
     """
-    from scipy.special import ndtr
+    from ._numeric import ndtr
     gi, gj = np.asarray(games[0]), np.asarray(games[1])
     n = len(r)
     k, l = np.triu_indices(n, 1)
@@ -579,7 +579,7 @@ def oracle_error_gain(r, S, games, true_strength, p_win, p_draw, prune=1e-6):
     in ranking_error_gain. Gain = loss now - expected loss after.
     games: (gi, gj); p_win[i, j], p_draw[i, j]: true colour-averaged chances.
     """
-    from scipy.special import ndtr
+    from ._numeric import ndtr
     gi, gj = np.asarray(games[0]), np.asarray(games[1])
     n = len(r)
     k, l = np.triu_indices(n, 1)

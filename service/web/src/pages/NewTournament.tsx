@@ -14,7 +14,9 @@ export function NewTournament() {
   const plans = useApi<{ billing: boolean }>("/plans");
   const [q] = useSearchParams();
   const { busy, run } = useAction();
-  const [f, setF] = useState({ club: q.get("club") ?? "", name: "", game: "", mode: "placement", ties: true, labels: "", pairing: "swiss", ranking: "score", rounds: "5", visibility: "unlisted", registration: "open", auto: false });
+  const [f, setF] = useState({ club: q.get("club") ?? "", name: "", game: "", mode: "placement", ties: true, labels: "", pairing: "swiss", ranking: "score", rounds: "5", visibility: "unlisted", registration: "open", auto: false,
+    useGroups: false, groups: "4", assign: "seeded", useBracket: false, bracketSize: "8", third: false });
+  const rr = f.pairing === "round-robin";
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setF({ ...f, [k]: e.target.type === "checkbox" ? (e.target as HTMLInputElement).checked : e.target.value });
 
@@ -31,7 +33,11 @@ export function NewTournament() {
         ...(f.club ? { club_id: f.club } : {}),
         settings: {
           game: { name: f.game || "Game", result_mode: f.mode, allow_ties: f.ties, ...(labels.length === 2 ? { seat_labels: labels } : {}) },
-          format: { pairing: f.pairing, ranking: f.ranking, rounds: f.rounds ? Number(f.rounds) : null },
+          format: {
+            pairing: f.pairing, ranking: f.ranking, rounds: !rr && f.rounds !== "" ? Number(f.rounds) : null,
+            ...(f.useGroups ? { groups: { count: Number(f.groups), assign: f.assign } } : {}),
+            ...(f.useBracket ? { bracket: { size: f.bracketSize ? Number(f.bracketSize) : null, third_place: f.third } } : {}),
+          },
           registration: { mode: f.registration },
           progression: { auto_advance: f.auto && autoOk },
         },
@@ -65,9 +71,68 @@ export function NewTournament() {
               <option value="score">A score for each player</option>
             </select>
           </Field>
-          <Field label="Rounds" hint="Leave empty for an open-ended league."><input inputMode="numeric" value={f.rounds} onChange={set("rounds")} /></Field>
+          <Field label="Pairing">
+            <select value={f.pairing} onChange={set("pairing")}>
+              {(systems.data?.pairing ?? ["swiss"]).map((p) => <option key={p} value={p}>{pairingLabel(p)}</option>)}
+            </select>
+          </Field>
+          {!rr ? (
+            <Field label="Rounds" hint={f.useBracket ? "Before the bracket. 0 for a straight knockout." : "Leave empty for an open-ended league."}>
+              <input inputMode="numeric" required={f.useBracket} value={f.rounds} onChange={set("rounds")} />
+            </Field>
+          ) : null}
+          <Field label="Ranking">
+            <select value={f.ranking} onChange={set("ranking")}>
+              {(systems.data?.ranking ?? ["score"]).map((p) => <option key={p} value={p}>{rankingLabel(p)}</option>)}
+            </select>
+          </Field>
         </div>
-        <label className="check"><input type="checkbox" checked={f.ties} onChange={set("ties")} /><span>Draws are possible</span></label>
+        {rr ? <p className="small muted">Everyone plays everyone once{f.useGroups ? " in their group" : ""}; the number of rounds follows from the entries.</p> : null}
+        <label className="check">
+          <input type="checkbox" checked={f.useGroups} onChange={set("useGroups")} />
+          <span>
+            Split players into groups
+            <span className="field-hint" style={{ display: "block" }}>Each group plays among itself, all at the same time. Otherwise everyone is one group.</span>
+          </span>
+        </label>
+        {f.useGroups ? (
+          <fieldset className="stage-box">
+            <legend>Groups</legend>
+            <div className="form-2">
+              <Field label="Number of groups"><input inputMode="numeric" required value={f.groups} onChange={set("groups")} /></Field>
+              <Field label="Who goes in which group">
+                <select value={f.assign} onChange={set("assign")}>
+                  <option value="seeded">Spread by seed</option>
+                  <option value="random">Drawn at random</option>
+                  <option value="manual">I'll place players myself</option>
+                </select>
+              </Field>
+            </div>
+          </fieldset>
+        ) : null}
+        <label className="check">
+          <input type="checkbox" checked={f.useBracket} onChange={set("useBracket")} />
+          <span>
+            Finish with a knockout bracket
+            <span className="field-hint" style={{ display: "block" }}>The top players after the rounds go through, seeded by the standings.</span>
+          </span>
+        </label>
+        {f.useBracket ? (
+          <fieldset className="stage-box">
+            <legend>Bracket</legend>
+            <Field label="Players in the bracket" hint={f.useGroups ? "Group winners go through first, then runners-up, and so on. Empty for everyone." : "Empty for everyone."}>
+              <input inputMode="numeric" value={f.bracketSize} onChange={set("bracketSize")} />
+            </Field>
+            <label className="check"><input type="checkbox" checked={f.third} onChange={set("third")} /><span>Semifinal losers play for third place</span></label>
+          </fieldset>
+        ) : null}
+        <label className="check">
+          <input type="checkbox" checked={f.ties} onChange={set("ties")} />
+          <span>
+            Draws are possible
+            {f.useBracket && f.ties ? <span className="field-hint" style={{ display: "block" }}>Not in the bracket: every knockout game needs a winner.</span> : null}
+          </span>
+        </label>
         <label className="check">
           <input type="checkbox" checked={f.auto && autoOk} disabled={!autoOk} onChange={set("auto")} />
           <span>
@@ -78,18 +143,6 @@ export function NewTournament() {
         <Field label="Side names" hint="Optional, comma-separated, like White, Black or First, Second. Leave empty if sides don't matter.">
           <input value={f.labels} onChange={set("labels")} />
         </Field>
-        <div className="form-2">
-          <Field label="Pairing">
-            <select value={f.pairing} onChange={set("pairing")}>
-              {(systems.data?.pairing ?? ["swiss"]).map((p) => <option key={p} value={p}>{pairingLabel(p)}</option>)}
-            </select>
-          </Field>
-          <Field label="Ranking">
-            <select value={f.ranking} onChange={set("ranking")}>
-              {(systems.data?.ranking ?? ["score"]).map((p) => <option key={p} value={p}>{rankingLabel(p)}</option>)}
-            </select>
-          </Field>
-        </div>
         <div className="form-2">
           <Field label="Who can see it">
             <select value={f.visibility} onChange={set("visibility")}>

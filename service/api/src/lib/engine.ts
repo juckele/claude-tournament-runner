@@ -5,6 +5,7 @@ import { ApiError, Env, parseJson } from "./core";
 import type { MatchModel } from "./matches";
 import { pointsFor, Result, seat0Score, seatOutcomes } from "./results";
 import type { Settings } from "./settings";
+import { hasStages, SILENT_BYES, StagePlan, stageOrder } from "./stages";
 
 async function call<T>(env: Env, path: string, body: unknown): Promise<T> {
   let res: Response;
@@ -26,7 +27,11 @@ async function call<T>(env: Env, path: string, body: unknown): Promise<T> {
 
 let systemsCache: { pairing: string[]; ranking: string[] } | null = null;
 export async function engineSystems(env: Env) {
-  systemsCache ??= await call<{ pairing: string[]; ranking: string[] }>(env, "/systems", undefined);
+  if (!systemsCache) {
+    const out = await call<{ pairing: string[]; ranking: string[] }>(env, "/systems", undefined);
+    // Round robin is scheduled by the API itself (lib/stages.ts), not the engine.
+    systemsCache = { ...out, pairing: ["round-robin", ...out.pairing.filter((p) => p !== "round-robin")] };
+  }
   return systemsCache;
 }
 
@@ -50,11 +55,13 @@ export interface SnapshotInput {
   entrants: EntrantRow[];
   matches: MatchModel[]; // matches of rounds < upto (or all)
   adjustments: { entrant_id: string; points: number }[];
+  /** Group phase and bracket layout, once the tournament has started (stages only). */
+  plan?: StagePlan | null;
 }
 
 function byePoints(settings: Settings, reason: string | null) {
   if (reason === "requested") return settings.byes.requested_points;
-  if (reason === "unpaired") return 0;
+  if (reason === "unpaired" || SILENT_BYES.includes(reason ?? "")) return 0;
   return settings.format.bye_points;
 }
 
@@ -67,6 +74,7 @@ export function snapshot(inp: SnapshotInput) {
   for (const m of inp.matches) {
     if (!m.seats.every((s) => known.has(s))) continue;
     if (m.row.kind === "bye") {
+      if (SILENT_BYES.includes(m.row.bye_reason ?? "")) continue;
       const e = m.seats[0];
       extra[e] = (extra[e] ?? 0) + byePoints(settings, m.row.bye_reason);
       if (m.row.bye_reason !== "requested") history.push({ round: m.row.round_number, seats: [e], bye: true });
@@ -120,7 +128,35 @@ export interface StandingRow {
   eligible: boolean;
 }
 
+/** Standings; with a group phase or bracket, ordered by stage (API.md §5.11). */
 export async function computeStandings(env: Env, inp: SnapshotInput): Promise<StandingRow[]> {
+  if (!inp.plan || !hasStages(inp.settings)) return computeFlatStandings(env, inp);
+  const plan = inp.plan;
+  const flat = await computeFlatStandings(env, inp);
+  const groupRows = await computeGroupStandings(env, inp, plan);
+  const bracket = inp.matches.filter((m) => m.row.bracket_pos != null);
+  return stageOrder(inp.settings, plan, inp.entrants, flat, groupRows, bracket);
+}
+
+/** Each group's standings from its own games (the group phase only). */
+export async function computeGroupStandings(env: Env, inp: SnapshotInput, plan: StagePlan): Promise<Map<number, StandingRow[]>> {
+  const out = new Map<number, StandingRow[]>();
+  if (!plan.groups) return out;
+  for (let g = 1; g <= plan.groups; g++) {
+    const members = inp.entrants.filter((e) => e.group_no === g);
+    const ids = new Set(members.map((e) => e.id));
+    out.set(g, await computeFlatStandings(env, {
+      ...inp,
+      entrants: members,
+      matches: inp.matches.filter((m) => m.row.round_number <= plan.group_rounds && m.seats.every((s) => ids.has(s))),
+      adjustments: inp.adjustments.filter((x) => ids.has(x.entrant_id)),
+      plan: null,
+    }));
+  }
+  return out;
+}
+
+export async function computeFlatStandings(env: Env, inp: SnapshotInput): Promise<StandingRow[]> {
   const { settings } = inp;
   const ents = inp.entrants.filter((e) => e.status !== "removed" && e.status !== "pending_approval");
   const row = new Map<string, StandingRow>();
@@ -131,6 +167,7 @@ export async function computeStandings(env: Env, inp: SnapshotInput): Promise<St
     });
   for (const m of inp.matches) {
     if (m.row.kind === "bye") {
+      if (SILENT_BYES.includes(m.row.bye_reason ?? "")) continue;
       const r = row.get(m.seats[0]);
       if (r) {
         r.byes++;
@@ -192,7 +229,7 @@ export async function loadSnapshotInput(env: Env, t: TournamentRow, settings: Se
     env.DB.prepare("SELECT * FROM entrants WHERE tournament_id = ? ORDER BY created_at, id").bind(t.id),
     env.DB.prepare("SELECT entrant_id, points FROM adjustments WHERE tournament_id = ?").bind(t.id),
   ]);
-  return { settings, entrants: e.results as unknown as EntrantRow[], matches, adjustments: a.results as any[] };
+  return { settings, entrants: e.results as unknown as EntrantRow[], matches, adjustments: a.results as any[], plan: t.stage_plan ? JSON.parse(t.stage_plan) : null };
 }
 
 export const parseSettings = (t: TournamentRow) => parseJson<Settings>(t.settings, null as any);

@@ -235,6 +235,22 @@ channels:
 **Paid plans.** Leave `BILLING` unset and everything is free and unlimited.
 To charge, see "Clubs and plans" below.
 
+## Groups and brackets
+
+The rounds of a tournament are its group stage, and by default everyone is in
+one group. Two additions are optional:
+
+- **Groups:** split the field into several groups, each paired among
+  itself.
+- **Bracket:** a single-elimination top cut, such as Swiss into a top 8. With
+  several groups, group winners are seeded first and players from the same
+  group are kept apart for as long as possible. An optional third-place game
+  is played alongside the final.
+
+Round robin is a pairing choice like Swiss. Zero rounds before the bracket
+makes a straight knockout. API.md §2.2 and §5.11 have the details; the web
+app has group tables and a Bracket view.
+
 ## Clubs and plans
 
 A club shares tournaments between its admins (owners of every club
@@ -266,7 +282,7 @@ a Stripe key in development, checkout switches the plan on immediately.
 - engine tests
 - web typecheck and build
 - API typecheck and tests
-- all four browser tests against `./dev.sh`, with screenshots uploaded
+- all five browser tests against `./dev.sh`, with screenshots uploaded
 
 `.github/workflows/android.yml` builds the app.
 
@@ -302,6 +318,10 @@ session only, not an API token; Profile → Delete account in the app does this.
 - GitHub OAuth sign-in
 - TRF import/export (chess-specific)
 
-The Python Worker has only been exercised through its CLI and a stub of the
-`workers` module. It hasn't run under Pyodide yet; numpy, scipy and networkx
-are all Pyodide packages.
+The engine Worker ships numpy and networkx but not scipy: with scipy the
+bundle passed Cloudflare's 64 MiB Worker limit. pairlab uses scipy for a
+normal CDF and an L-BFGS fit, and falls back to numpy versions
+(`pairlab/_numeric.py`, tested against scipy) when scipy isn't installed.
+Deploying the engine needs uv 0.13.4 or later. Behind an HTTPS proxy, run the
+deploy script with `NODE_USE_ENV_PROXY=1`, because Node's fetch ignores
+`HTTPS_PROXY` otherwise.

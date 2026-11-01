@@ -41,7 +41,7 @@ try {
   await td.page.getByRole("link", { name: "New tournament" }).click();
   await td.page.waitForURL(/\/new\?club=/);
   await td.page.getByLabel("Name", { exact: true }).fill("Live Night");
-  await td.page.getByLabel("Rounds").fill("2");
+  await td.page.getByRole("textbox", { name: /^Rounds/ }).fill("2");
   await td.page.getByLabel("Pair each round automatically").check();
   await td.page.getByRole("button", { name: "Create tournament" }).click();
   await td.page.waitForURL(/\/desk$/);

@@ -5,15 +5,10 @@ import { computeStandings, enginePair, loadSnapshotInput, pairRequest, SnapshotI
 import { loadMatches, MatchModel, Ruling } from "./matches";
 import type { Settings } from "./settings";
 import { checkStart, hasFeature } from "./plans";
+import { drawGroups, groupLetter, hasStages, parsePlan, planBracketRound, planGroupRound, PlannedMatch, PlannedRound, planStages, stageOf } from "./stages";
 import { Tx } from "./tx";
 
-export interface PlannedMatch {
-  id: string;
-  board: number;
-  kind: "game" | "bye";
-  bye_reason?: string;
-  seats: string[];
-}
+export type { PlannedMatch } from "./stages";
 
 const parseRounds = (s: string) => parseJson<number[]>(s, []);
 
@@ -41,7 +36,14 @@ async function forbiddenPairs(env: Env, tid: string): Promise<[string, string][]
 }
 
 /** Ask the engine for round `n` and turn the answer into planned matches (games, then byes). */
-export async function planRound(env: Env, a: Access, inp: SnapshotInput, n: number, allowIncomplete = false): Promise<PlannedMatch[]> {
+export async function planRound(env: Env, a: Access, inp: SnapshotInput, n: number, allowIncomplete = false): Promise<PlannedRound> {
+  if (hasStages(a.settings)) {
+    if (!inp.plan) throw invalidState("the tournament's stages haven't been drawn");
+    const st = stageOf(inp.plan, n);
+    if (st.stage === "bracket") return planBracketRound(env, inp, inp.plan, st.round);
+    const groupOf = new Map(inp.entrants.filter((e) => e.group_no != null).map((e) => [e.id, e.group_no!]));
+    return planGroupRound(env, inp, n, groupOf, (members) => roundDemand(a.settings, members, n), await forbiddenPairs(env, a.t.id), allowIncomplete);
+  }
   const { demand, requested } = roundDemand(a.settings, inp.entrants, n);
   if (Object.keys(demand).length + requested.length === 0)
     throw new ApiError(422, "pairing_failed", `nobody is available to play round ${n}`);
@@ -61,13 +63,17 @@ export async function planRound(env: Env, a: Access, inp: SnapshotInput, n: numb
   return planned;
 }
 
-export function stageRoundMatches(tx: Tx, tid: string, roundId: string, n: number, planned: PlannedMatch[]) {
+export function stageRoundMatches(tx: Tx, tid: string, roundId: string, n: number, planned: PlannedRound) {
   const t = now();
+  for (const [id, f] of Object.entries(planned.assign ?? {})) {
+    if (f.group_no !== undefined) tx.add("UPDATE entrants SET group_no = ? WHERE id = ?", f.group_no, id);
+    if (f.bracket_seed !== undefined) tx.add("UPDATE entrants SET bracket_seed = ? WHERE id = ?", f.bracket_seed, id);
+  }
   for (const p of planned) {
     tx.add(
-      `INSERT INTO matches (id, tournament_id, round_id, round_number, board, kind, bye_reason, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      p.id, tid, roundId, n, p.board, p.kind, p.bye_reason ?? null, p.kind === "bye" ? "confirmed" : "scheduled", t, t,
+      `INSERT INTO matches (id, tournament_id, round_id, round_number, board, kind, bye_reason, status, bracket_pos, bracket_tier, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      p.id, tid, roundId, n, p.board, p.kind, p.bye_reason ?? null, p.kind === "bye" ? "confirmed" : "scheduled", p.bracket_pos ?? null, p.bracket_tier ?? null, t, t,
     );
     p.seats.forEach((e, i) => tx.add("INSERT INTO match_seats (match_id, seat, entrant_id) VALUES (?, ?, ?)", p.id, i, e));
   }
@@ -89,8 +95,12 @@ export function stageStandings(tx: Tx, tid: string, round: number, rows: Standin
   }
 }
 
-const pairingsJson = (planned: PlannedMatch[], names: Map<string, string>) =>
-  planned.map((p) => ({ board: p.board, kind: p.kind, bye_reason: p.bye_reason, seats: p.seats.map((e) => ({ entrant_id: e, name: names.get(e) })) }));
+const pairingsJson = (planned: PlannedMatch[], names: Map<string, string>, groups?: Map<string, number>) =>
+  planned.map((p) => ({
+    board: p.board, kind: p.kind, bye_reason: p.bye_reason, seats: p.seats.map((e) => ({ entrant_id: e, name: names.get(e) })),
+    ...(groups?.has(p.seats[0]) ? { group: groups.get(p.seats[0]) } : {}),
+    ...(p.bracket_pos != null ? { bracket: { pos: p.bracket_pos, tier: p.bracket_tier } } : {}),
+  }));
 
 // ---------------------------------------------------------------- start
 export async function startTournament(env: Env, a: Access, opts: { dry_run?: boolean; allow_incomplete?: boolean }) {
@@ -100,14 +110,31 @@ export async function startTournament(env: Env, a: Access, opts: { dry_run?: boo
   const active = inp.entrants.filter((e) => e.status === "active");
   if (active.length < 2) throw invalidState("need at least two active entrants to start");
   const plan = await checkStart(env, a.t, active.length);
+  // Group phase / bracket: draw the groups and work out how many rounds each stage takes.
+  let groups: Map<string, number> | undefined;
+  if (hasStages(a.settings)) {
+    groups = drawGroups(a.settings, active);
+    const sizes: number[] = [];
+    for (const g of groups.values()) sizes[g - 1] = (sizes[g - 1] ?? 0) + 1;
+    inp.plan = planStages(a.settings, sizes.filter((x) => x != null), active.length);
+    inp.entrants = inp.entrants.map((e) => ({ ...e, group_no: groups!.get(e.id) ?? null, bracket_seed: null }));
+    a.settings.format.rounds = inp.plan.group_rounds + inp.plan.bracket_rounds;
+  }
   const planned = await planRound(env, a, inp, 1, opts.allow_incomplete);
+  if (groups?.size) planned.assign = { ...Object.fromEntries([...groups].map(([id, g]) => [id, { group_no: g }])), ...mergeAssign(planned.assign, groups) };
   const names = new Map(inp.entrants.map((e) => [e.id, e.display_name]));
-  if (opts.dry_run) return { dry_run: true, round: 1, pairings: pairingsJson(planned, names) };
+  if (inp.plan && inp.plan.groups < 2) groups = undefined; // one group: nothing to label
+  const stages = inp.plan ? { ...inp.plan, group_names: Array.from({ length: inp.plan.groups }, (_, i) => groupLetter(i + 1)) } : undefined;
+  if (opts.dry_run) return { dry_run: true, round: 1, pairings: pairingsJson(planned, names, groups), ...(stages ? { stages } : {}) };
   const tx = new Tx(env, a.actor);
   const t = now();
   const roundId = newId("rnd");
   tx.guardVersion("tournaments", a.t.id, a.t.version);
   tx.add("UPDATE tournaments SET status = 'running', registration_open = 0, current_round = 1, started_plan = ?, version = version + 1, updated_at = ? WHERE id = ?", plan, t, a.t.id);
+  if (inp.plan) {
+    tx.add("UPDATE tournaments SET stage_plan = ?, settings = ? WHERE id = ?", JSON.stringify(inp.plan), JSON.stringify(a.settings), a.t.id);
+    tx.add("UPDATE entrants SET group_no = NULL, bracket_seed = NULL WHERE tournament_id = ?", a.t.id);
+  }
   tx.add("INSERT INTO rounds (id, tournament_id, number, status, opened_at, deadline) VALUES (?, ?, 1, 'open', ?, ?)", roundId, a.t.id, t, deadlineFor(a.settings, t));
   stageRoundMatches(tx, a.t.id, roundId, 1, planned);
   stageStandings(tx, a.t.id, 0, await computeStandings(env, inp));
@@ -115,7 +142,14 @@ export async function startTournament(env: Env, a: Access, opts: { dry_run?: boo
   tx.event("round.opened", a.t.id, { round: 1 }, { round: 1 });
   tx.event("pairings.published", a.t.id, { round: 1 }, { round: 1, matches: planned.map((p) => p.id) });
   await tx.commit();
-  return { round: 1, pairings: pairingsJson(planned, names) };
+  return { round: 1, pairings: pairingsJson(planned, names, groups), ...(stages ? { stages } : {}) };
+}
+
+/** Group numbers from the draw, merged with any seeds the first round set (a bracket-only start). */
+function mergeAssign(a: PlannedRound["assign"], groups: Map<string, number>) {
+  const out: NonNullable<PlannedRound["assign"]> = {};
+  for (const [id, f] of Object.entries(a ?? {})) out[id] = { ...f, ...(groups.has(id) ? { group_no: groups.get(id) } : {}) };
+  return out;
 }
 
 // ---------------------------------------------------------------- advance
@@ -205,7 +239,7 @@ export async function advance(
   const inp = await loadSnapshotInput(env, a.t, a.settings, all);
   const standings = await computeStandings(env, inp);
   const last = a.settings.format.rounds != null && n >= a.settings.format.rounds;
-  let planned: PlannedMatch[] = [];
+  let planned: PlannedRound = [];
   if (!last) planned = await planRound(env, a, inp, n + 1, opts.allow_incomplete);
   const names = new Map(inp.entrants.map((e) => [e.id, e.display_name]));
   if (opts.dry_run)
@@ -287,7 +321,7 @@ async function requireFreshRound(env: Env, a: Access, n: number) {
   return { all, round: round!.id };
 }
 
-function stageReplace(tx: Tx, a: Access, n: number, roundId: string, planned: PlannedMatch[], manual: boolean) {
+function stageReplace(tx: Tx, a: Access, n: number, roundId: string, planned: PlannedRound, manual: boolean) {
   tx.guardVersion("tournaments", a.t.id, a.t.version);
   tx.add("UPDATE tournaments SET version = version + 1, updated_at = ? WHERE id = ?", now(), a.t.id);
   for (const sql of ["report_revisions", "claims", "comments", "match_seats"])
@@ -311,6 +345,8 @@ export async function repairRound(env: Env, a: Access, n: number, opts: { dry_ru
 
 export async function setPairings(env: Env, a: Access, n: number, body: any) {
   const { all, round } = await requireFreshRound(env, a, n);
+  const sp = parsePlan(a.t.stage_plan);
+  if (sp && stageOf(sp, n).stage === "bracket") throw invalidState("bracket games follow the draw; re-pair the round to draw it again");
   if (!isObj(body) || !Array.isArray(body.matches)) throw bad("body must be {matches: [{seats: [entrant_id, entrant_id]} | {seats: [entrant_id], kind: \"bye\"}], force?}");
   const force = body.force === true;
   const inp = await loadSnapshotInput(env, a.t, a.settings, all);

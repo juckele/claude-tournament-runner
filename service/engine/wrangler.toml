@@ -4,3 +4,8 @@ compatibility_date = "2026-10-01"
 compatibility_flags = ["python_workers"]
 # No routes: reachable only through the API Worker's ENGINE service binding.
 workers_dev = false
+
+# Keep the vendored packages under the 64 MiB Worker limit: test suites, type stubs and bytecode
+# caches aren't needed at runtime (scipy's tests alone are ~11 MB).
+[python_modules]
+exclude = ["**/*.pyc", "**/__pycache__", "**/tests/**", "**/*.pyi"]

@@ -4,6 +4,7 @@ import { api, ApiError, download, Match, PUBLIC_ORIGIN } from "../api";
 import { describeResult, duration, when } from "../format";
 import { useAction, useApi, useToast } from "../hooks";
 import { planLabel, planLimitOf, PlanLimitDialog, UpgradeOptions } from "../plan";
+import { formatSummary, groupLetter, roundTitle } from "../stages";
 import { PlanLimitBody } from "../api";
 import { Board, Button, Dialog, Empty, ErrorNote, Field, Loading, Section, StatusPill } from "../ui";
 import { RulingForm } from "./Match";
@@ -208,9 +209,10 @@ function Lifecycle({ att, reloadAtt }: { att: Attention | null; reloadAtt: () =>
       </div>
 
       <PlanLimitDialog limit={limit} t={t} onClose={() => setLimit(null)} />
-      <Dialog open={!!preview} onClose={() => setPreview(null)} title={preview?.kind === "start" ? "Round 1 pairings" : preview?.data?.completes ? "Finish the tournament" : `Round ${t.current_round + 1} pairings`}>
+      <Dialog open={!!preview} onClose={() => setPreview(null)} title={preview?.kind === "start" ? (preview.data?.stages?.groups > 1 ? "The group draw" : "Round 1 pairings") : preview?.data?.completes ? "Finish the tournament" : `${roundTitle(t, t.current_round + 1)}: pairings`}>
         {preview ? (
           <div className="stack">
+            {preview.kind === "start" && preview.data.stages ? <StagePreview st={preview.data.stages} /> : null}
             {preview.data.pairings ? <PairingPreview pairings={preview.data.pairings} /> : <p>Round {t.current_round} is the last round. Closing it publishes the final standings.</p>}
             {preview.data.finalised?.length ? <p className="small muted">{preview.data.finalised.length} unfinished game{preview.data.finalised.length === 1 ? "" : "s"} will be settled by your options.</p> : null}
             <p className="small muted">Players are notified on their chosen channels when you publish.</p>
@@ -234,7 +236,15 @@ function Lifecycle({ att, reloadAtt }: { att: Attention | null; reloadAtt: () =>
   );
 }
 
-function PairingPreview({ pairings }: { pairings: { board: number; kind: string; bye_reason?: string; seats: { name: string }[] }[] }) {
+function StagePreview({ st }: { st: { groups: number; group_rounds: number; bracket_size: number; bracket_rounds: number } }) {
+  const { t } = useT();
+  const parts = [];
+  if (st.group_rounds) parts.push(st.groups > 1 ? `${st.groups} groups, ${st.group_rounds} round${st.group_rounds > 1 ? "s" : ""} of group games` : `${st.group_rounds} round${st.group_rounds > 1 ? "s" : ""}`);
+  if (st.bracket_rounds) parts.push(`a ${st.bracket_size}-player bracket over ${st.bracket_rounds} round${st.bracket_rounds > 1 ? "s" : ""}`);
+  return <p className="small muted">{formatSummary(t)}. With these players: {parts.join(", then ")}.{st.group_rounds ? "" : " Round 1 is the bracket."}</p>;
+}
+
+function PairingPreview({ pairings }: { pairings: { board: number; kind: string; bye_reason?: string; group?: number; bracket?: { tier: string }; seats: { name: string }[] }[] }) {
   return (
     <ol className="pairings" style={{ maxHeight: "50dvh", overflow: "auto" }}>
       {pairings.map((p) => (
@@ -242,7 +252,9 @@ function PairingPreview({ pairings }: { pairings: { board: number; kind: string;
           {p.kind === "bye" ? <span className="board board-m board-bye">–</span> : <Board n={p.board} />}
           <span className="pairing-names">
             {p.seats.map((s, i) => <span key={i}>{s.name}</span>)}
-            {p.kind === "bye" ? <span className="muted small">{p.bye_reason === "requested" ? "requested bye" : "bye"}</span> : null}
+            {p.kind === "bye" ? <span className="muted small">{p.bye_reason === "requested" ? "requested bye" : p.bye_reason === "bracket" ? "through without playing" : p.bye_reason === "rest" ? "sits out" : "bye"}</span> : null}
+            {p.group ? <span className="bk-group">Group {groupLetter(p.group)}</span> : null}
+            {p.bracket?.tier === "third" ? <span className="muted small">third place</span> : null}
           </span>
         </li>
       ))}

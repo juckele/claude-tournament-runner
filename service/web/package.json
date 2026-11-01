@@ -6,7 +6,7 @@
     "build": "tsc -p . && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p .",
-    "e2e": "node e2e/smoke.mjs && node e2e/private.mjs && node e2e/live.mjs && node e2e/clubs.mjs"
+    "e2e": "node e2e/smoke.mjs && node e2e/private.mjs && node e2e/live.mjs && node e2e/clubs.mjs && node e2e/stages.mjs"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.2",

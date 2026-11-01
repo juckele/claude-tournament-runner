@@ -100,10 +100,14 @@ export interface Match {
   void_reason: string | null; disputed_by: string | null; overdue: boolean; scheduled_at: string | null; location: string | null;
   schedule_proposal: { by: string; at: string; location: string | null } | null; bye_reason?: string; reports?: Report[];
   my_seat?: number; my_report?: { revision: number; result: Result | null; retracted: boolean } | null;
+  bracket?: { pos: number; tier: "main" | "third" };
 }
 export interface Settings {
   game: { name: string; seat_order: string; seat_labels?: string[]; result_mode: "placement" | "score"; allow_ties: boolean; higher_is_better: boolean; points: { by_placement: number[]; tie: string } };
-  format: { pairing: string; ranking: string; rounds: number | null; games_per_round: number; rematches: string; bye_points: number; min_games_to_rank: number; seed: number };
+  format: {
+    pairing: string; ranking: string; rounds: number | null; games_per_round: number; rematches: string; bye_points: number; min_games_to_rank: number; seed: number;
+    groups?: GroupStage; bracket?: { size: number | null; third_place: boolean };
+  };
   reporting: { who_may_report: string; amend_until: string; deadline: string | null };
   progression: { auto_advance?: boolean; accept_undisputed_after: string | null; unplayed: string };
   channels: Record<"api" | "td" | "email" | "sms", { enabled: boolean; notify?: string[]; inbound?: boolean }>;
@@ -114,11 +118,16 @@ export interface Settings {
   check_in: { required: boolean };
   claims: { response_window: string };
 }
+export interface GroupStage { count?: number; size?: number; assign: "seeded" | "random" | "manual" }
+export interface Stages {
+  groups: number; group_rounds: number; bracket_size: number; bracket_rounds: number; group_names: string[];
+  current: { stage: "groups" | "bracket"; round: number } | null;
+}
 export interface Tournament {
   id: string; code: string; name: string; description: string; status: string; visibility: string; registration_open: boolean;
   current_round: number; settings: Settings; cancelled_reason: string | null; version: number; created_at: string;
   my_role?: "owner" | "director" | "observer" | null; my_entrant_id?: string | null;
-  club?: { id: string; name: string } | null; plan?: PlanInfo;
+  club?: { id: string; name: string } | null; plan?: PlanInfo; stages?: Stages;
 }
 export interface Limits { max_players: number | null; max_running: number | null; max_directors: number | null; auto_advance: boolean; sms: boolean }
 export type PlanName = "free" | "club" | "event_pass" | "unlimited";
@@ -136,9 +145,10 @@ export interface PlanLimitBody { code: "plan_limit"; detail: string; plan: PlanN
 export interface Entrant {
   id: string; user_id: string; display_name: string; status: string; seed: number | null; rating: number | null;
   availability?: number[]; requested_byes?: number[]; max_games_per_round?: number | null; contact_prefs?: Record<string, boolean>;
-  checked_in_round?: number | null; contacts?: { kind: string; value: string; verified: boolean }[]; calendar_url?: string; version?: number;
+  checked_in_round?: number | null; group?: number; bracket_seed?: number; contacts?: { kind: string; value: string; verified: boolean }[]; calendar_url?: string; version?: number;
 }
-export interface Standing { rank: number; entrant_id: string; name: string; status: string; points: number; played: number; wins: number; draws: number; losses: number; forfeits: number; byes: number; adjustments: number; rating?: number; eligible: boolean }
+export interface Standing { rank: number; entrant_id: string; name: string; status: string; points: number; played: number; wins: number; draws: number; losses: number; forfeits: number; byes: number; adjustments: number; rating?: number; eligible: boolean;
+  group?: number | null; group_rank?: number | null; bracket_seed?: number | null; eliminated_in?: number | null; advancing?: boolean }
 export interface Me {
   id: string; display_name: string; contacts: { id: string; kind: string; value: string; verified: boolean }[];
   roles: { tournament_id: string; role: string; name: string; status: string }[];

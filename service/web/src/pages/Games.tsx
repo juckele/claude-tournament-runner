@@ -5,6 +5,7 @@ import { describeResult } from "../format";
 import { useAction, useApi, useSession } from "../hooks";
 import { Board, Button, Empty, ErrorNote, Field, Loading, Section, StatusPill } from "../ui";
 import { ReportPanel } from "./ReportPanel";
+import { roundTitle } from "../stages";
 import { useT } from "./Tournament";
 
 export function Games() {
@@ -52,7 +53,7 @@ export function Games() {
       ) : null}
 
       {t.current_round ? (
-        <Section title={t.status === "complete" ? `Final round` : `Round ${t.current_round}`} actions={<Link className="btn btn-quiet" to={`/t/${t.id}/entry`}>Your entry</Link>}>
+        <Section title={t.status === "complete" ? `Final round` : roundTitle(t, t.current_round)} actions={<Link className="btn btn-quiet" to={`/t/${t.id}/entry`}>Your entry</Link>}>
           {games.loading ? <Loading /> : <ErrorNote error={games.error} retry={games.reload} />}
           {games.data && !games.data.matches.length ? <Empty title="No game for you this round">You weren't paired this round. Check your entry settings if that's unexpected.</Empty> : null}
           <div className="stack">
@@ -88,8 +89,13 @@ export function GameCard({ m, onChange }: { m: Match; onChange: () => void }) {
       <div className="panel game-card">
         <span className="board board-l board-bye">–</span>
         <div className="vs">
-          <span className="opp">Bye</span>
-          <span className="side">{m.bye_reason === "requested" ? "You asked to sit this round out." : "Odd number of players: you sit this one out."}</span>
+          <span className="opp">{m.bye_reason === "bracket" ? "Through to the next round" : "Bye"}</span>
+          <span className="side">
+            {m.bye_reason === "requested" ? "You asked to sit this round out."
+              : m.bye_reason === "bracket" ? "No opponent in this round of the bracket, so you go straight through."
+              : m.bye_reason === "rest" ? "Your group has an odd number of players: you sit this round out."
+              : "Odd number of players: you sit this one out."}
+          </span>
         </div>
       </div>
     );

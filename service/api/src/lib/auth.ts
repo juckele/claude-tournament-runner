@@ -130,6 +130,7 @@ export interface TournamentRow {
   club_id: string | null;
   event_pass: number;
   started_plan: string | null;
+  stage_plan?: string | null;
 }
 
 export interface EntrantRow {
@@ -147,6 +148,8 @@ export interface EntrantRow {
   checked_in_round: number | null;
   withdrawn_round: number | null;
   status_reason: string | null;
+  group_no?: number | null;
+  bracket_seed?: number | null;
   version: number;
   created_at: string;
   updated_at: string;

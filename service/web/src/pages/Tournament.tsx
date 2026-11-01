@@ -4,8 +4,9 @@ import { Entrant, getToken, setLinkToken, Tournament } from "../api";
 import { isTD, tournamentStatusText } from "../format";
 import { LiveCtx, useApi, useToast } from "../hooks";
 import { LiveEvent, useLive } from "../live";
-import { IconDesk, IconGame, IconLog, IconPairings, IconPlayers, IconSettings, IconStandings } from "../icons";
+import { IconBracket, IconDesk, IconGame, IconLog, IconPairings, IconPlayers, IconSettings, IconStandings } from "../icons";
 import { ErrorNote, Loading } from "../ui";
+import { Bracket } from "./Bracket";
 import { Desk } from "./Desk";
 import { Entry } from "./Entry";
 import { Games } from "./Games";
@@ -83,7 +84,8 @@ export function TournamentRoutes() {
   const tabs = [
     { to: "", label: "My games", icon: <IconGame />, end: true, show: !viaLink },
     { to: "pairings", label: "Pairings", icon: <IconPairings />, show: true },
-    { to: "standings", label: "Standings", icon: <IconStandings />, show: true },
+    { to: "standings", label: t.settings.format.groups ? "Groups" : "Standings", icon: <IconStandings />, show: true },
+    { to: "bracket", label: "Bracket", icon: <IconBracket />, show: !!t.settings.format.bracket },
     { to: "players", label: "Players", icon: <IconPlayers />, show: !viaLink },
     { to: "desk", label: "Desk", icon: <IconDesk />, show: td },
     { to: "settings", label: "Settings", icon: <IconSettings />, show: td },
@@ -127,6 +129,7 @@ export function TournamentRoutes() {
             <Route path="pairings" element={<Pairings />} />
             <Route path="pairings/:n" element={<Pairings />} />
             <Route path="standings" element={<Standings />} />
+            <Route path="bracket" element={<Bracket />} />
             <Route path="players" element={<Players />} />
             <Route path="entry" element={<Entry />} />
             <Route path="desk" element={<Desk />} />
